@@ -1,0 +1,139 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+set dotenv-load := true
+
+manage := "uv run"
+
+default:
+    @just --choose
+
+generate-hharon-api:
+    uv run scripts/generate_hh_enums.py proto api/hharon_api/v1/headhunter.proto
+    buf lint && buf format --write
+    just generate-hharon-api-{{ os() }}
+
+alias generate-hharon-api-macos := generate-hharon-api-linux
+
+generate-hharon-api-linux:
+    rm -rf hharon_api
+    mkdir -p hharon_api
+    docker run --rm -v ./hharon_api:/hharon_api:rw -v ./api:/api:ro -w / ghcr.io/astral-sh/uv:python3.13-bookworm-slim \
+        uv run --with protoletariat==3.3.10,grpclib[protobuf]==0.4.9,mypy-protobuf==3.7.0,grpcio_tools==1.71.2 \
+            protol --in-place --create-package --python-out hharon_api \
+            protoc --protoc-path="python3 -m grpc_tools.protoc" --proto-path=api --python_out=. --grpclib_python_out=. --mypy_out=. \
+                hharon_api/v1/hharon.proto \
+                hharon_api/v1/headhunter.proto
+
+generate-hharon-api-windows:
+    Remove-Item -Recurse -Force .\hharon_api
+    mkdir -p hharon_api
+    docker run --rm -v .\\hharon_api:/hharon_api:rw -v .\\api:/api:ro -w / ghcr.io/astral-sh/uv:python3.13-bookworm-slim \
+        uv run --with protoletariat==3.3.10,grpclib[protobuf]==0.4.9,mypy-protobuf==3.7.0,grpcio_tools==1.71.2 \
+            protol --in-place --create-package --python-out hharon_api \
+            protoc --protoc-path="python3 -m grpc_tools.protoc" --proto-path=api --python_out=. --grpclib_python_out=. --mypy_out=. \
+                hharon_api/v1/hharon.proto \
+                hharon_api/v1/headhunter.proto
+
+generate-external-clients:
+    uv run scripts/protogen.py \
+        --what client \
+        --repo git@github.com:nanimai-team/platform.git \
+        --hash 5482bee837d2fbdf71c38491efbd3269ed4da7b6 \
+        --path api/platform_api/v1/common.proto \
+        --path api/platform_api/v1/candidate_api.proto \
+        --path api/platform_api/v1/criterion_api.proto \
+        --path api/platform_api/v1/project_api.proto \
+        --path api/platform_api/v1/stop_factor_api.proto \
+        --path api/platform_api/v1/user_profile_api.proto \
+        --path api/platform_api/v1/vacancy_api.proto \
+        --incl api \
+        --cmpl betterproto2 \
+        --outd hharon/pkg/nanimai_platform
+
+alias __remove-hh-api-macos := __remove-hh-api-linux
+
+__remove-hh-api-linux:
+    rm -rf hharon/pkg/hhapi/__init__.py
+    rm -rf hharon/pkg/hhapi/models.py
+
+__remove-hh-api-windows:
+    Remove-Item -Force -ErrorAction SilentlyContinue hharon/pkg/hhapi/__init__.py
+    Remove-Item -Force -ErrorAction SilentlyContinue hharon/pkg/hhapi/models.py
+
+generate-hh-api:
+    just __remove-hh-api-{{ os() }}
+    just __generate-hh-api
+
+__generate-hh-api:
+    uvx --from datamodel-code-generator==0.54.1 datamodel-codegen \
+        --input hharon/pkg/hhapi/openapi.yml \
+        --input-file-type openapi \
+        --openapi-scopes schemas parameters paths \
+        \
+        --output hharon/pkg/hhapi/models.py \
+        --output-model-type pydantic_v2.BaseModel \
+        --target-python-version 3.13 \
+        --formatters ruff-check \
+        --disable-timestamp \
+        \
+        --reuse-model \
+        --collapse-root-models \
+        --field-constraints \
+        --include-path-parameters \
+        --allow-population-by-field-name \
+        --use-standard-collections \
+        --use-generic-container-types \
+        --use-enum-values-in-discriminator \
+        --use-specialized-enum \
+        --use-annotated \
+        --use-default \
+        --use-default-kwarg \
+        --use-exact-imports \
+        --use-field-description \
+        --enum-field-as-literal one \
+        --capitalise-enum-members \
+        --empty-enum-field-name UNSPECIFIED
+
+    uv run scripts/generate_hh_enums.py python hharon/pkg/hhapi/dictionaries.py
+
+    uvx mkinit --relative hharon/pkg/hhapi --write --black
+    uv run ruff check --fix hharon/pkg/hhapi --ignore W291,ERA001,E501,UP007,S105
+    uv run ruff format hharon/pkg/hhapi
+
+generate-mappers:
+    uv run scripts/generate_hh_enums.py mappers hharon/pkg/mappers/enums.py
+    uvx mkinit --relative hharon/pkg/mappers --write --black
+    uv run ruff check --fix hharon/pkg/mappers --ignore E501
+    uv run ruff format hharon/pkg/mappers
+
+lint:
+    {{ manage }} ruff format .
+    {{ manage }} ruff check --fix .
+    {{ manage }} mypy . --install-types --non-interactive --ignore-missing-imports --disable-error-code var-annotated --disable-error-code import-untyped --disable-error-code type-abstract
+    {{ manage }} basedpyright .
+    # {{ manage }} ty check .
+
+generate:
+    just generate-hharon-api
+    just generate-hh-api
+    just generate-mappers
+    just generate-external-clients
+
+# Default: skip tests that call real HH API (network).
+run-tests:
+    {{ manage }} pytest --failed-first --exitfirst --verbose --no-header --numprocesses auto
+
+# Run all tests, including real HH API.
+run-tests-all:
+    {{ manage }} pytest --cache-clear --verbose --no-header --numprocesses auto -m ""
+
+deploy:
+    rsync -r --info=progress2 -ahv . \
+        --filter=':- .gitignore' \
+        --exclude=".git" \
+        ${SSH_TARGET}:${SSH_TARGET_PATH}
+
+remote-execute *cmd:
+    ssh ${SSH_TARGET} "cd ${SSH_TARGET_PATH} && {{ cmd }}"
+
+remote-logs service="platform_server" tail="50":
+    ssh ${SSH_TARGET} "cd ${SSH_TARGET_PATH} && docker compose logs --no-log-prefix --tail {{ tail }} {{ service }}" | jlf
