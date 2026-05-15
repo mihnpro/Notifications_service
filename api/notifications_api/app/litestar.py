@@ -38,8 +38,8 @@ async def app_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
 app = Litestar(
     route_handlers=[health],
     dependencies={
-        "config": Provide(provide_config),
-        "engine": Provide(provide_engine),
+        "config": Provide(provide_config, sync_to_thread=False),
+        "engine": Provide(provide_engine, sync_to_thread=False),
         "session": Provide(provide_session),
     },
     lifespan=[app_lifespan],
