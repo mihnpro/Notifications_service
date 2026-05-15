@@ -1,0 +1,56 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: notifications_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-notifications}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notifications}
+      POSTGRES_DB: ${POSTGRES_DB:-notifications}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notifications} -d ${POSTGRES_DB:-notifications}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - notifications
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: notifications_rabbitmq
+    restart: unless-stopped
+    environment:
+      # User/vhost/topology are declared in definitions.json
+      # Default guest user is kept disabled by not setting RABBITMQ_DEFAULT_USER
+      RABBITMQ_DEFAULT_USER: "guest-disabled"
+      RABBITMQ_DEFAULT_PASS: "guest-disabled"
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - notifications
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+
+networks:
+  notifications:
+    driver: bridge
