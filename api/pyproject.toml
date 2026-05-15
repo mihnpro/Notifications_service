@@ -1,0 +1,116 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "notifications-api"
+version = "0.1.0"
+description = "Litestar MVP baseline for notifications service"
+readme = "readme.md"
+requires-python = ">=3.12"
+dependencies = [
+    "litestar>=2.9,<3.0",
+    "sqlalchemy[asyncio]>=2.0,<3.0",
+    "asyncpg>=0.29,<1.0",
+    "alembic>=1.13,<2.0",
+    "pydantic-settings>=2.3,<3.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "httpx>=0.28.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "basedpyright>=1.36.1",
+    "pytest>=8.2,<9.0",
+    "pytest-asyncio>=0.23,<1.0",
+    "httpx>=0.27,<1.0",
+    "mypy>=1.19.1",
+    "ruff>=0.15.13",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["notifications_api"]
+
+[tool.uv]
+package = true
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+exclude = ["**/.venv", "**/__pycache__", "alembic", "tests", "scripts"]
+typeCheckingMode = "recommended"
+
+[tool.mypy]
+exclude = ["alembic", ".*_test.py", "tests", "scripts"]
+plugins = "pydantic.mypy"
+
+[tool.ruff]
+exclude = [".venv", "alembic"]
+line-length = 120
+indent-width = 4
+target-version = "py312"
+fix = true
+
+[tool.ruff.format]
+preview = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+fixable = ["ALL"]
+ignore = [
+    "ANN",
+    "D",
+    "EM101",
+    "RUF001",
+    "BLE001",
+    "SIM103",
+    "ASYNC109",
+    "TRY003",
+    "PLW0602",
+    "TC001",
+    "ISC003",
+    "COM812",
+    "RUF003",
+    "RUF002",
+    "TRY301",
+]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "F401", "TID252", "PLC0414"]
+"**/{tests,docs,tools}/*" = ["E402"]
+"tests/**/*" = ["S101"]
+"*_test.py" = ["ANN", "S", "S101", "TRY", "PGH003", "FBT", "PT012", "N801", "ARG002", "SLF001", "PLR", "SIM"]
+"scripts/*" = ["T201", "ASYNC", "A004", "A001", "TRY003", "SLF001"]
+"alembic/*" = ["INP001"]
+
+[tool.ruff.lint.flake8-bandit]
+check-typed-exception = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 128
+
+[tool.ruff.lint.isort]
+case-sensitive = true
+force-single-line = false
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = []
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
