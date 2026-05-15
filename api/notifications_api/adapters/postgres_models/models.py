@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import final
 from uuid import UUID
@@ -6,9 +8,41 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from notifications_api.domain import (
+    Campaign,
+    CampaignPriority,
+    CampaignRegionRun,
+    CampaignRegionRunStatus,
+    CampaignStats,
+    CampaignStatus,
+    Channel,
+    DeliveryError,
+    DeliveryRecord,
+    RecipientSelector,
+)
+
 
 class Base(DeclarativeBase):
     pass
+
+
+@final
+class ManagerORM(Base):
+    __tablename__ = "managers"
+
+    id: Mapped[UUID] = mapped_column(
+        sa.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")
+    )
+    login: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default=sa.text("'active'"))
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+    )
+
+    __table_args__: tuple[object, ...] = (
+        sa.CheckConstraint("status IN ('active', 'blocked')", name="ck_managers_status"),
+    )
 
 
 @final
@@ -67,6 +101,13 @@ class ChannelORM(Base):
         sa.CheckConstraint("disable_policy IN ('retry_later', 'fail_fast')", name="ck_channels_disable_policy"),
     )
 
+    def to_domain(self) -> Channel:
+        return Channel(
+            id=self.id,
+            code=self.code,
+            state=self.state,
+        )
+
 
 @final
 class UserChannelORM(Base):
@@ -121,6 +162,20 @@ class CampaignORM(Base):
         sa.CheckConstraint("priority IN ('low', 'normal', 'high')", name="ck_campaigns_priority"),
     )
 
+    def to_domain(self) -> Campaign:
+        return Campaign(
+            id=self.id,
+            manager_id=self.manager_id,
+            name=self.name,
+            status=CampaignStatus(self.status),
+            message_snapshot=self.message_snapshot,
+            recipient_selector=RecipientSelector.from_payload(self.recipient_selector),
+            selected_channel_codes=tuple(self.selected_channel_codes),
+            priority=CampaignPriority(self.priority),
+            created_at=self.created_at,
+            completed_at=self.completed_at,
+        )
+
 
 @final
 class CampaignRegionRunORM(Base):
@@ -149,6 +204,14 @@ class CampaignRegionRunORM(Base):
         sa.UniqueConstraint("campaign_id", "region_id", name="uq_campaign_region_runs_campaign_region"),
         sa.Index("idx_campaign_region_runs_region_status", "region_id", "status"),
     )
+
+    def to_domain(self) -> CampaignRegionRun:
+        return CampaignRegionRun(
+            id=self.id,
+            campaign_id=self.campaign_id,
+            region_id=self.region_id,
+            status=CampaignRegionRunStatus(self.status),
+        )
 
 
 @final
@@ -219,6 +282,24 @@ class DeliveryTaskORM(Base):
         sa.Index("idx_delivery_tasks_campaign_status", "campaign_id", "status"),
     )
 
+    def to_domain(self) -> DeliveryRecord:
+        return DeliveryRecord(
+            task_id=self.id,
+            region_id=self.region_id,
+            user_id=self.user_id,
+            channel_code=self.channel_code,
+            recipient_address_snapshot=self.recipient_address_snapshot,
+            message_snapshot=self.message_snapshot,
+            status=self.status,
+            attempt_count=self.attempt_count,
+            created_at=self.created_at,
+            started_at=self.started_at,
+            completed_at=self.completed_at,
+            available_at=self.available_at,
+            last_error_code=self.last_error_code,
+            last_error_message=self.last_error_message,
+        )
+
 
 @final
 class DeliveryAttemptORM(Base):
@@ -258,6 +339,21 @@ class DeliveryAttemptORM(Base):
         sa.Index("idx_delivery_attempts_task_status_started", "task_id", "status", "started_at"),
         sa.Index("idx_delivery_attempts_campaign_status_error", "campaign_id", "status", "error_code", "started_at"),
     )
+
+    def to_domain(self) -> DeliveryError:
+        return DeliveryError(
+            id=self.id,
+            task_id=self.task_id,
+            channel_code=self.channel_code,
+            status=self.status,
+            error_type=self.error_type,
+            error_code=self.error_code,
+            error_message=self.error_message,
+            provider_code=self.provider_code,
+            provider_request_id=self.provider_request_id,
+            started_at=self.started_at,
+            completed_at=self.completed_at,
+        )
 
 
 @final
@@ -340,6 +436,21 @@ class CampaignStatsORM(Base):
         sa.CheckConstraint("region_id = 'default'", name="ck_campaign_stats_region_default"),
     )
 
+    def to_domain(self) -> CampaignStats:
+        return CampaignStats(
+            campaign_id=self.campaign_id,
+            region_id=self.region_id,
+            total_tasks=int(self.total_tasks),
+            queued=int(self.queued),
+            sending=int(self.sending),
+            succeeded=int(self.succeeded),
+            failed=int(self.failed),
+            retry_scheduled=int(self.retry_scheduled),
+            dead_lettered=int(self.dead_lettered),
+            cancelled=int(self.cancelled),
+            updated_at=self.updated_at,
+        )
+
 
 @final
 class DeliveryResultORM(Base):
@@ -385,6 +496,23 @@ class DeliveryResultORM(Base):
         sa.Index("idx_delivery_results_completed", "completed_at"),
         sa.Index("idx_delivery_results_task_completed", "task_id", "completed_at"),
     )
+
+    def to_domain(self) -> DeliveryRecord:
+        return DeliveryRecord(
+            task_id=self.task_id,
+            region_id=self.region_id,
+            user_id=self.user_id,
+            channel_code=self.channel_code,
+            recipient_address_snapshot=self.recipient_address_snapshot,
+            message_snapshot=self.message_snapshot,
+            status=self.status,
+            attempt_count=self.attempt_count,
+            provider_code=self.provider_code,
+            provider_request_id=self.provider_request_id,
+            created_at=self.created_at,
+            started_at=self.started_at,
+            completed_at=self.completed_at,
+        )
 
 
 @final

@@ -9,8 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-@get("/health")
-async def health(
+async def _probe_db(
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
 ) -> Response[dict[str, str]]:
     try:
@@ -22,3 +21,24 @@ async def health(
         )
 
     return Response(content={"status": "ok", "db": "ready"}, status_code=HTTP_200_OK)
+
+
+@get("/health")
+async def health(
+    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
+) -> Response[dict[str, str]]:
+    return await _probe_db(session)
+
+
+@get("/healthz")
+async def healthz(
+    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
+) -> Response[dict[str, str]]:
+    return await _probe_db(session)
+
+
+@get("/readyz")
+async def readyz(
+    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
+) -> Response[dict[str, str]]:
+    return await _probe_db(session)
