@@ -1,8 +1,10 @@
 from functools import lru_cache
 from typing import ClassVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from notifications_api.infra.postgres import PostgresConfig
 
 
 class AppConfig(BaseModel):
@@ -11,32 +13,25 @@ class AppConfig(BaseModel):
     debug: bool = False
 
 
-class PostgresConfig(BaseModel):
-    host: str = Field(default="localhost")
-    port: int = Field(default=5432)
-    username: str = Field(default="postgres")
-    password: str = Field(default="postgres")
-    database: str = Field(default="notifications")
-
-    should_log_sql: bool | None = Field(default=False)
-    pool_size: int = Field(default=10)
-    pool_max_overflow: int | None = Field(default=20)
-
-    @property
-    def url(self) -> str:
-        return f"postgresql+asyncpg://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
-
-
 class GlobalConfig(BaseSettings):
     app_host: str = "0.0.0.0"  # noqa: S104
     app_port: int = 8000
-    app_debug: bool = False
+    app_debug: bool = True
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "postgres"
     postgres_password: str = "postgres"  # noqa: S105
     postgres_db: str = "notifications"
+    idempotency_ttl_seconds: int = 3600
+    pagination_default_limit: int = 50
+    pagination_max_limit: int = 200
+    dlq_replay_max_limit: int = 1000
+    dlq_replay_max_additional_attempts: int = 10
+    users_bulk_max_batch: int = 1000
+    feature_operational_tail: bool = True
+    feature_bc_eventual_mode: bool = True
+    feature_dlq_replay_noop: bool = False
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env",
