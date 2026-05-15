@@ -4,6 +4,7 @@ from notifications_api.adapters.postgres_models.models import CampaignRegionRunO
 from notifications_api.adapters.postgres_models.models import CampaignStatsORM as CampaignStatsORM
 from notifications_api.adapters.postgres_models.models import ChannelORM as ChannelORM
 from notifications_api.adapters.postgres_models.models import DeliveryAttemptORM as DeliveryAttemptORM
+from notifications_api.adapters.postgres_models.models import DeliveryResultORM as DeliveryResultORM
 from notifications_api.adapters.postgres_models.models import DeliveryTaskORM as DeliveryTaskORM
 from notifications_api.adapters.postgres_models.models import DlqItemORM as DlqItemORM
 from notifications_api.adapters.postgres_models.models import IdempotencyKeyORM as IdempotencyKeyORM
@@ -18,6 +19,7 @@ __all__ = [
     "CampaignStatsORM",
     "ChannelORM",
     "DeliveryAttemptORM",
+    "DeliveryResultORM",
     "DeliveryTaskORM",
     "DlqItemORM",
     "IdempotencyKeyORM",

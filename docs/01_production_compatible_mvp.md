@@ -1,6 +1,6 @@
 # Notification Platform — Production-compatible MVP
 
-Версия: 1.1  
+Версия: 1.2  
 Стек MVP: Go API, PostgreSQL, RabbitMQ, Go workers, provider stubs  
 MVP-регион: `default`  
 Семантика доставки: `at-least-once + idempotency`, без обещания настоящего exactly-once
@@ -36,6 +36,32 @@ Not in scope:
 ```
 
 Provider stub по задаче спит случайно `2-300 секунд`, поэтому end-to-end delivery не может входить в `p95 < 1500 ms`.
+
+## 0.1 MVP regional simplification
+
+Для текущего MVP принимаем минимальную региональную модель:
+
+```text
+single-region now: runtime работает только с region_id='default'
+region_id/regionId остается обязательным в БД-сущностях и message payload/routing
+API принимает final wire shape, но в MVP валиден только regionIds=["default"]
+```
+
+Что не является обязательным для MVP runtime:
+
+```text
+динамический справочник regions как отдельная runtime-обязанность
+regional config matrix для множества регионов
+composite PK/infra усложнение только ради немедленной multi-region эксплуатации
+multi-region DB split и regional RabbitMQ clusters
+```
+
+Важно:
+
+```text
+routing и payload фиксируются сразу в финальной форме с regionId
+для MVP все примеры/сигналы используют regionId=default
+```
 
 ---
 
@@ -308,11 +334,11 @@ Transaction:
 ```text
 1. Validate request body.
 2. Validate Idempotency-Key.
-3. Validate regions.
-4. Validate channels and channel_regional_configs.
+3. Validate regionIds: for MVP only ["default"] is accepted.
+4. Validate channels and effective config for regionId=default.
 5. Insert campaign with message_snapshot and recipient_selector.
-6. Insert campaign_region_runs per region.
-7. Insert CampaignRegionRunRequested outbox event per region run.
+6. Insert one campaign_region_run for regionId=default.
+7. Insert one CampaignRegionRunRequested outbox event for regionId=default.
 8. Save idempotency response.
 9. Commit.
 10. Return 202.
@@ -521,9 +547,19 @@ outbox_events.status: pending, publishing, published, failed, archived
 dlq_items.status: open, replayed, ignored
 ```
 
+MVP profile note:
+
+```text
+single-region mode uses only region_id='default'
+any regional status/state management beyond default is future scope
+```
+
 ---
 
-### 4.2 `regions`
+### 4.2 Optional `regions` reference (future-ready)
+
+For MVP this table is optional as a runtime dependency. If used, keep a single seeded row `default`.
+If omitted in MVP migrations, drop `REFERENCES regions(id)` constraints and keep `region_id NOT NULL DEFAULT 'default'`.
 
 ```sql
 CREATE TABLE regions (
@@ -1088,6 +1124,7 @@ notification.dlx      direct, durable
 ### 5.2 Main queues
 
 Queue naming uses `queue_group`, not raw channel.
+In MVP we declare only `notification.default.*` queues; the template remains multi-region-ready.
 
 ```text
 notification.default.fanout.q
@@ -1963,11 +2000,29 @@ MVP is accepted when all are true:
 18. Campaign finalizer reaches terminal states.
 19. Channel disable policy works: fail_fast and retry_later.
 20. Semantics are documented as at-least-once + idempotency, not exactly-once.
+21. Single-region demo is sufficient: regionId=default in API/routing/payload.
+22. Multi-region rollout (DB split/regional clusters) is explicitly out of MVP acceptance.
 ```
 
 ---
 
-## 14. Links / references
+## 14. Migration note: from MVP default region to future multi-region
+
+```text
+Already ready in MVP:
+1. region_id/regionId exists in core tables, events and routing keys.
+2. message contracts are final-form and always include regionId and campaignRegionRunId.
+3. outbox/task addressing uses region-scoped dedupe and keys.
+
+Add later:
+4. managed regions directory and lifecycle (enable/disable, metadata).
+5. regional policy/config matrix (limits, retry, provider routing, channel state).
+6. infra split by region: DB topology, RabbitMQ clusters, deployment isolation.
+```
+
+---
+
+## 15. Links / references
 
 - RabbitMQ Quorum Queues: https://www.rabbitmq.com/docs/quorum-queues
 - RabbitMQ Consumer Prefetch: https://www.rabbitmq.com/docs/consumer-prefetch
