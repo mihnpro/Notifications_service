@@ -1,45 +1,42 @@
 from __future__ import annotations
 
 from datetime import UTC
-from typing import Annotated, Any
-from uuid import UUID, uuid4
+from typing import Annotated, Any, NoReturn
+from uuid import UUID
 
-import sqlalchemy as sa
 from litestar import Request, get, post
+from litestar.datastructures import State  # noqa: TC002
 from litestar.params import Dependency
 from litestar.response import Response
-from litestar.status_codes import HTTP_200_OK, HTTP_202_ACCEPTED
-from sqlalchemy.ext.asyncio import AsyncSession
+from litestar.status_codes import HTTP_200_OK
 
-from notifications_api.adapters.postgres_models.models import (
-    CampaignORM,
-    CampaignRegionRunORM,
-    CampaignStatsORM,
-    ChannelORM,
-    DeliveryAttemptORM,
-    DeliveryResultORM,
-    DeliveryTaskORM,
-    OutboxEventORM,
-)
 from notifications_api.app.http.auth import ManagerIdentity
-from notifications_api.app.http.errors import ApiError, raise_not_found, raise_validation
-from notifications_api.app.http.idempotency import (
-    build_scope,
-    complete_idempotent_request,
-    extract_idempotency_key,
-    fail_idempotent_request,
-    idempotency_ttl,
-    payload_hash,
-    start_idempotent_request,
-)
-from notifications_api.app.http.pagination import build_cursor_filter, decode_cursor, encode_cursor
+from notifications_api.app.http.errors import raise_not_found, raise_validation
+from notifications_api.app.http.idempotency import build_scope, extract_idempotency_key, idempotency_ttl
+from notifications_api.app.http.pagination import decode_cursor, encode_cursor
 from notifications_api.app.http.schemas import ApiModel
 from notifications_api.infra.config import GlobalConfig
-
-DEFAULT_REGION = "default"
-FINAL_CAMPAIGN_STATUSES = {"completed", "partially_failed", "failed", "cancelled"}
-CAMPAIGN_PRIORITIES = {"low", "normal", "high"}
-RECIPIENT_SELECTOR_TYPES = {"all", "user_ids", "external_ids", "segment"}
+from notifications_api.protocol.campaign import CursorPoint
+from notifications_api.usecase.campaigns import (
+    CampaignUsecaseNotFoundError,
+    CampaignUsecaseValidationError,
+    CancelCampaignUsecase,
+    CreateCampaignUsecase,
+    GetCampaignErrorsRequest,
+    GetCampaignErrorsUsecase,
+    GetCampaignRequest,
+    GetCampaignResultsRequest,
+    GetCampaignResultsUsecase,
+    GetCampaignStatsUsecase,
+    GetCampaignStatsViewRequest,
+    GetCampaignTasksRequest,
+    GetCampaignTasksUsecase,
+    GetCampaignUsecase,
+    ListCampaignsRequest,
+    ListCampaignsUsecase,
+)
+from notifications_api.usecase.campaigns import CancelCampaignRequest as CancelCampaignCommand
+from notifications_api.usecase.campaigns import CreateCampaignRequest as CreateCampaignCommand
 
 
 class RecipientSelector(ApiModel):
@@ -72,326 +69,159 @@ def _validate_limit(raw_limit: int | None, config: GlobalConfig) -> int:
     return limit
 
 
-def _validate_regions(region_ids: list[str]) -> None:
-    normalized = sorted(set(region_ids))
-    if normalized != [DEFAULT_REGION]:
-        raise_validation("Only regionIds=['default'] is supported in MVP")
-
-
-def _validate_selector(selector: RecipientSelector) -> None:
-    if selector.type not in RECIPIENT_SELECTOR_TYPES:
-        raise_validation("Unsupported recipientSelector.type", {"type": selector.type})
-    if selector.type == "all":
-        return
-    if selector.type == "user_ids":
-        if not selector.user_ids:
-            raise_validation("recipientSelector.userIds is required for type=user_ids")
-        if len(selector.user_ids) > 10_000:
-            raise_validation("recipientSelector.userIds exceeds max size", {"max": 10_000})
-        return
-    if selector.type == "external_ids":
-        if not selector.external_ids:
-            raise_validation("recipientSelector.externalIds is required for type=external_ids")
-        if len(selector.external_ids) > 10_000:
-            raise_validation("recipientSelector.externalIds exceeds max size", {"max": 10_000})
-        return
-    if selector.type == "segment":
-        if not selector.filter:
-            raise_validation("recipientSelector.filter is required for type=segment")
-
-
-async def _load_campaign_for_manager(
-    session: AsyncSession,
-    campaign_id: UUID,
-    manager_id: UUID,
-) -> CampaignORM:
-    campaign = (
-        await session.execute(
-            sa.select(CampaignORM).where(
-                CampaignORM.id == campaign_id,
-                CampaignORM.manager_id == manager_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if campaign is None:
-        raise_not_found("Campaign not found")
-    return campaign
-
-
-def _campaign_to_item(campaign: CampaignORM) -> dict[str, object]:
+def _campaign_to_item(campaign: Any) -> dict[str, object]:
     return {
         "campaignId": str(campaign.id),
         "name": campaign.name,
-        "status": campaign.status,
-        "priority": campaign.priority,
-        "regionIds": [DEFAULT_REGION],
-        "channels": campaign.selected_channel_codes,
+        "status": campaign.status.value,
+        "priority": campaign.priority.value,
+        "regionIds": ["default"],
+        "channels": list(campaign.selected_channel_codes),
         "createdAt": campaign.created_at.astimezone(UTC).isoformat(),
         "completedAt": campaign.completed_at.astimezone(UTC).isoformat() if campaign.completed_at else None,
     }
 
 
-def _validate_channels_ready(channels: list[ChannelORM], codes: list[str]) -> None:
-    by_code = {channel.code: channel for channel in channels}
-    missing = sorted(set(codes) - set(by_code))
-    if missing:
-        raise_validation("Some channels were not found", {"missingChannels": missing})
-    disabled = [channel.code for channel in channels if channel.state == "disabled"]
-    if disabled:
-        raise_validation(
-            "Selected channels are disabled in region default",
-            {"disabledChannels": sorted(disabled), "regionId": DEFAULT_REGION},
-        )
+def _serialize_message(snapshot: dict[str, Any]) -> dict[str, object]:
+    return {key: value for key, value in snapshot.items() if isinstance(key, str)}
+
+
+def _to_cursor_point(cursor: str | None) -> CursorPoint | None:
+    if cursor is None:
+        return None
+    decoded = decode_cursor(cursor)
+    return CursorPoint(timestamp=decoded.created_at, row_id=decoded.row_id)
+
+
+def _handle_usecase_validation_error(exc: CampaignUsecaseValidationError) -> NoReturn:
+    raise_validation(exc.message, exc.details)
+
+
+def _handle_usecase_not_found_error(exc: CampaignUsecaseNotFoundError) -> NoReturn:
+    raise_not_found(exc.message)
 
 
 @post("/campaigns")
 async def create_campaign(
     data: CreateCampaignRequest,
-    request: Request[object, object, object],
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
+    request: Request[Any, Any, State],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
+    create_campaign_usecase: Annotated[CreateCampaignUsecase, Dependency(skip_validation=True)],
 ) -> Response[dict[str, object]]:
-    _validate_regions(data.region_ids)
-    _validate_selector(data.recipient_selector)
-    if not data.channels:
-        raise_validation("At least one channel is required")
-    if data.priority not in CAMPAIGN_PRIORITIES:
-        raise_validation("Invalid priority", {"allowed": sorted(CAMPAIGN_PRIORITIES)})
-    if not data.message:
-        raise_validation("message must not be empty")
-
     idempotency_key = extract_idempotency_key(request)
     scope = build_scope(request, manager)
-    request_hash = payload_hash(data.model_dump(by_alias=True, mode="json"))
-
-    start_result = await start_idempotent_request(
-        session=session,
-        scope=scope,
-        key=idempotency_key,
-        request_hash=request_hash,
-        ttl_seconds=idempotency_ttl(config),
-    )
-    await session.commit()
-
-    if start_result.is_replay and start_result.replay is not None:
-        return Response(content=start_result.replay.payload, status_code=start_result.replay.status_code)
-
     try:
-        channels = (
-            await session.execute(sa.select(ChannelORM).where(ChannelORM.code.in_(data.channels)))
-        ).scalars().all()
-        _validate_channels_ready(channels, data.channels)
-
-        campaign = CampaignORM(
-            id=uuid4(),
-            manager_id=manager.manager_id,
-            name=data.name,
-            status="running",
-            message_snapshot=data.message,
-            recipient_selector=data.recipient_selector.model_dump(by_alias=True, mode="json", exclude_none=True),
-            selected_channel_codes=data.channels,
-            priority=data.priority,
-            create_idempotency_key=idempotency_key,
-        )
-        session.add(campaign)
-        await session.flush()
-
-        region_run = CampaignRegionRunORM(
-            id=uuid4(),
-            campaign_id=campaign.id,
-            region_id=DEFAULT_REGION,
-            status="fanout_pending",
-        )
-        session.add(region_run)
-        await session.flush()
-
-        event_payload = {
-            "messageType": "CampaignRegionRunRequested",
-            "version": 1,
-            "campaignId": str(campaign.id),
-            "campaignRegionRunId": str(region_run.id),
-            "regionId": DEFAULT_REGION,
-            "priority": data.priority,
-            "dedupeKey": f"campaign-region-run-requested:{DEFAULT_REGION}:{region_run.id}",
-        }
-        session.add(
-            OutboxEventORM(
-                id=uuid4(),
-                region_id=DEFAULT_REGION,
-                event_type="CampaignRegionRunRequested",
-                payload=event_payload,
-                routing_key=f"notification.{DEFAULT_REGION}.fanout.{data.priority}",
-                dedupe_key=event_payload["dedupeKey"],
-                status="pending",
-                transport_mode="rabbitmq_direct",
+        result = await create_campaign_usecase.execute(
+            request=CreateCampaignCommand(
+                manager_id=manager.manager_id,
+                name=data.name,
+                region_ids=data.region_ids,
+                message=data.message,
+                recipient_selector=data.recipient_selector.model_dump(by_alias=True, mode="json", exclude_none=True),
+                channels=data.channels,
+                priority=data.priority,
+                idempotency_scope=scope,
+                idempotency_key=idempotency_key,
+                idempotency_payload=data.model_dump(by_alias=True, mode="json"),
+                idempotency_ttl_seconds=idempotency_ttl(config),
             )
         )
+    except CampaignUsecaseValidationError as exc:
+        _handle_usecase_validation_error(exc)
 
-        response_payload = {
-            "campaignId": str(campaign.id),
-            "status": campaign.status,
-            "regionRuns": [
-                {
-                    "id": str(region_run.id),
-                    "regionId": region_run.region_id,
-                    "status": region_run.status,
-                }
-            ],
-        }
-        await complete_idempotent_request(
-            session=session,
-            scope=scope,
-            key=idempotency_key,
-            payload=response_payload,
-            status_code=HTTP_202_ACCEPTED,
-        )
-        await session.commit()
-        return Response(content=response_payload, status_code=HTTP_202_ACCEPTED)
-    except ApiError:
-        await session.rollback()
-        await fail_idempotent_request(session=session, scope=scope, key=idempotency_key)
-        await session.commit()
-        raise
-    except Exception:
-        await session.rollback()
-        await fail_idempotent_request(session=session, scope=scope, key=idempotency_key)
-        await session.commit()
-        raise
+    return Response(content=result.payload, status_code=result.status_code)
 
 
 @post("/campaigns/{campaign_id:uuid}/cancel")
 async def cancel_campaign(
     campaign_id: UUID,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     data: CancelCampaignRequest,
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
+    cancel_campaign_usecase: Annotated[CancelCampaignUsecase, Dependency(skip_validation=True)],
 ) -> Response[dict[str, object]]:
     idempotency_key = extract_idempotency_key(request)
     scope = build_scope(request, manager)
-    request_hash = payload_hash(
-        {
+    command = CancelCampaignCommand(
+        campaign_id=campaign_id,
+        manager_id=manager.manager_id,
+        reason=data.reason,
+        idempotency_scope=scope,
+        idempotency_key=idempotency_key,
+        idempotency_payload={
             "campaignId": str(campaign_id),
             **data.model_dump(by_alias=True, mode="json", exclude_none=True),
-        }
+        },
+        idempotency_ttl_seconds=idempotency_ttl(config),
     )
-
-    start_result = await start_idempotent_request(
-        session=session,
-        scope=scope,
-        key=idempotency_key,
-        request_hash=request_hash,
-        ttl_seconds=idempotency_ttl(config),
-    )
-    await session.commit()
-
-    if start_result.is_replay and start_result.replay is not None:
-        return Response(content=start_result.replay.payload, status_code=start_result.replay.status_code)
 
     try:
-        campaign = await _load_campaign_for_manager(session, campaign_id, manager.manager_id)
-        if campaign.status not in FINAL_CAMPAIGN_STATUSES and campaign.status != "cancelling":
-            campaign.status = "cancelling"
-            dedupe_key = f"campaign-cancel-requested:{DEFAULT_REGION}:{campaign.id}"
-            payload = {
-                "messageType": "CampaignCancelRequested",
-                "version": 1,
-                "campaignId": str(campaign.id),
-                "regionId": DEFAULT_REGION,
-                "reason": data.reason or "manual_cancel",
-                "dedupeKey": dedupe_key,
-            }
-            session.add(
-                OutboxEventORM(
-                    id=uuid4(),
-                    region_id=DEFAULT_REGION,
-                    event_type="CampaignCancelRequested",
-                    payload=payload,
-                    routing_key=f"notification.{DEFAULT_REGION}.fanout.high",
-                    dedupe_key=dedupe_key,
-                    status="pending",
-                    transport_mode="rabbitmq_direct",
-                )
-            )
+        result = await cancel_campaign_usecase.execute(command)
+    except CampaignUsecaseNotFoundError as exc:
+        _handle_usecase_not_found_error(exc)
 
-        response_payload = {"campaignId": str(campaign.id), "status": campaign.status}
-        await complete_idempotent_request(
-            session=session,
-            scope=scope,
-            key=idempotency_key,
-            payload=response_payload,
-            status_code=HTTP_202_ACCEPTED,
-        )
-        await session.commit()
-        return Response(content=response_payload, status_code=HTTP_202_ACCEPTED)
-    except ApiError:
-        await session.rollback()
-        await fail_idempotent_request(session=session, scope=scope, key=idempotency_key)
-        await session.commit()
-        raise
-    except Exception:
-        await session.rollback()
-        await fail_idempotent_request(session=session, scope=scope, key=idempotency_key)
-        await session.commit()
-        raise
+    return Response(content=result.payload, status_code=result.status_code)
 
 
 @get("/campaigns")
 async def list_campaigns(
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
+    list_campaigns_usecase: Annotated[ListCampaignsUsecase, Dependency(skip_validation=True)],
     limit: int | None = None,
     cursor: str | None = None,
     status: str | None = None,
 ) -> Response[dict[str, object]]:
     applied_limit = _validate_limit(limit, config)
-    stmt = sa.select(CampaignORM).where(CampaignORM.manager_id == manager.manager_id)
-    if status:
-        stmt = stmt.where(CampaignORM.status == status)
-    if cursor:
-        parsed = decode_cursor(cursor)
-        stmt = stmt.where(build_cursor_filter(CampaignORM.created_at, CampaignORM.id, parsed))
-    stmt = stmt.order_by(CampaignORM.created_at.desc(), CampaignORM.id.desc()).limit(applied_limit + 1)
-    rows = (await session.execute(stmt)).scalars().all()
-    has_next = len(rows) > applied_limit
-    rows = rows[:applied_limit]
+    page = await list_campaigns_usecase.execute(
+        ListCampaignsRequest(
+            manager_id=manager.manager_id,
+            limit=applied_limit,
+            cursor=_to_cursor_point(cursor),
+            status=status,
+        )
+    )
     next_cursor = None
-    if has_next and rows:
-        last = rows[-1]
-        next_cursor = encode_cursor(last.created_at, last.id)
-    payload = {"items": [_campaign_to_item(row) for row in rows], "nextCursor": next_cursor}
+    if page.next_cursor is not None:
+        next_cursor = encode_cursor(page.next_cursor.timestamp, page.next_cursor.row_id)
+    payload: dict[str, object] = {
+        "items": [_campaign_to_item(campaign) for campaign in page.items],
+        "nextCursor": next_cursor,
+    }
     return Response(content=payload, status_code=HTTP_200_OK)
 
 
 @get("/campaigns/{campaign_id:uuid}")
 async def get_campaign(
     campaign_id: UUID,
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
+    get_campaign_usecase: Annotated[GetCampaignUsecase, Dependency(skip_validation=True)],
 ) -> Response[dict[str, object]]:
-    campaign = await _load_campaign_for_manager(session, campaign_id, manager.manager_id)
+    try:
+        campaign = await get_campaign_usecase.execute(
+            GetCampaignRequest(campaign_id=campaign_id, manager_id=manager.manager_id)
+        )
+    except CampaignUsecaseNotFoundError as exc:
+        _handle_usecase_not_found_error(exc)
+
     return Response(content=_campaign_to_item(campaign), status_code=HTTP_200_OK)
 
 
 @get("/campaigns/{campaign_id:uuid}/stats")
 async def campaign_stats(
     campaign_id: UUID,
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
+    get_campaign_stats_usecase: Annotated[GetCampaignStatsUsecase, Dependency(skip_validation=True)],
 ) -> Response[dict[str, object]]:
-    campaign = await _load_campaign_for_manager(session, campaign_id, manager.manager_id)
-    stats = (
-        await session.execute(
-            sa.select(CampaignStatsORM).where(
-                CampaignStatsORM.campaign_id == campaign.id,
-                CampaignStatsORM.region_id == DEFAULT_REGION,
-            )
+    try:
+        view = await get_campaign_stats_usecase.execute(
+            GetCampaignStatsViewRequest(campaign_id=campaign_id, manager_id=manager.manager_id)
         )
-    ).scalar_one_or_none()
-    updated_at = campaign.created_at
+    except CampaignUsecaseNotFoundError as exc:
+        _handle_usecase_not_found_error(exc)
+
     stats_payload: dict[str, object] = {
         "totalTasks": 0,
         "queued": 0,
@@ -402,77 +232,76 @@ async def campaign_stats(
         "deadLettered": 0,
         "cancelled": 0,
     }
-    if stats:
-        updated_at = stats.updated_at
+    if view.stats is not None:
         stats_payload = {
-            "totalTasks": int(stats.total_tasks),
-            "queued": int(stats.queued),
-            "sending": int(stats.sending),
-            "succeeded": int(stats.succeeded),
-            "failed": int(stats.failed),
-            "retryScheduled": int(stats.retry_scheduled),
-            "deadLettered": int(stats.dead_lettered),
-            "cancelled": int(stats.cancelled),
+            "totalTasks": view.stats.total_tasks,
+            "queued": view.stats.queued,
+            "sending": view.stats.sending,
+            "succeeded": view.stats.succeeded,
+            "failed": view.stats.failed,
+            "retryScheduled": view.stats.retry_scheduled,
+            "deadLettered": view.stats.dead_lettered,
+            "cancelled": view.stats.cancelled,
         }
-    payload = {
-        "campaignId": str(campaign.id),
-        "status": campaign.status,
+
+    payload: dict[str, object] = {
+        "campaignId": str(view.campaign.id),
+        "status": view.campaign.status.value,
         "stats": stats_payload,
         "consistency": "eventual",
-        "updatedAt": updated_at.astimezone(UTC).isoformat(),
+        "updatedAt": view.updated_at.astimezone(UTC).isoformat(),
     }
     return Response(content=payload, status_code=HTTP_200_OK)
-
-
-def _serialize_message(snapshot: dict[str, Any]) -> dict[str, object]:
-    return {key: value for key, value in snapshot.items() if isinstance(key, str)}
 
 
 @get("/campaigns/{campaign_id:uuid}/tasks")
 async def campaign_tasks(
     campaign_id: UUID,
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
+    get_campaign_tasks_usecase: Annotated[GetCampaignTasksUsecase, Dependency(skip_validation=True)],
     limit: int | None = None,
     cursor: str | None = None,
     status: str | None = None,
     channel: str | None = None,
 ) -> Response[dict[str, object]]:
-    _ = await _load_campaign_for_manager(session, campaign_id, manager.manager_id)
     applied_limit = _validate_limit(limit, config)
-    stmt = sa.select(DeliveryTaskORM).where(DeliveryTaskORM.campaign_id == campaign_id)
-    if status:
-        stmt = stmt.where(DeliveryTaskORM.status == status)
-    if channel:
-        stmt = stmt.where(DeliveryTaskORM.channel_code == channel)
-    if cursor:
-        parsed = decode_cursor(cursor)
-        stmt = stmt.where(build_cursor_filter(DeliveryTaskORM.created_at, DeliveryTaskORM.id, parsed))
-    stmt = stmt.order_by(DeliveryTaskORM.created_at.desc(), DeliveryTaskORM.id.desc()).limit(applied_limit + 1)
-    rows = (await session.execute(stmt)).scalars().all()
-    has_next = len(rows) > applied_limit
-    rows = rows[:applied_limit]
-    next_cursor = encode_cursor(rows[-1].created_at, rows[-1].id) if has_next and rows else None
-    payload = {
+    try:
+        page = await get_campaign_tasks_usecase.execute(
+            GetCampaignTasksRequest(
+                campaign_id=campaign_id,
+                manager_id=manager.manager_id,
+                limit=applied_limit,
+                cursor=_to_cursor_point(cursor),
+                status=status,
+                channel=channel,
+            )
+        )
+    except CampaignUsecaseNotFoundError as exc:
+        _handle_usecase_not_found_error(exc)
+
+    next_cursor = None
+    if page.next_cursor is not None:
+        next_cursor = encode_cursor(page.next_cursor.timestamp, page.next_cursor.row_id)
+    payload: dict[str, object] = {
         "items": [
             {
-                "taskId": str(row.id),
+                "taskId": str(row.task_id),
                 "regionId": row.region_id,
                 "userId": str(row.user_id),
                 "recipient": row.recipient_address_snapshot,
                 "channel": row.channel_code,
-                "message": _serialize_message(row.message_snapshot),
+                "message": _serialize_message(dict(row.message_snapshot)),
                 "status": row.status,
                 "attemptCount": row.attempt_count,
                 "createdAt": row.created_at.astimezone(UTC).isoformat(),
                 "startedAt": row.started_at.astimezone(UTC).isoformat() if row.started_at else None,
                 "completedAt": row.completed_at.astimezone(UTC).isoformat() if row.completed_at else None,
-                "availableAt": row.available_at.astimezone(UTC).isoformat(),
+                "availableAt": row.available_at.astimezone(UTC).isoformat() if row.available_at else None,
                 "lastErrorCode": row.last_error_code,
                 "lastErrorMessage": row.last_error_message,
             }
-            for row in rows
+            for row in page.items
         ],
         "nextCursor": next_cursor,
         "consistency": "eventual",
@@ -483,30 +312,33 @@ async def campaign_tasks(
 @get("/campaigns/{campaign_id:uuid}/results")
 async def campaign_results(
     campaign_id: UUID,
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
+    get_campaign_results_usecase: Annotated[GetCampaignResultsUsecase, Dependency(skip_validation=True)],
     limit: int | None = None,
     cursor: str | None = None,
     status: str | None = None,
     channel: str | None = None,
 ) -> Response[dict[str, object]]:
-    _ = await _load_campaign_for_manager(session, campaign_id, manager.manager_id)
     applied_limit = _validate_limit(limit, config)
-    stmt = sa.select(DeliveryResultORM).where(DeliveryResultORM.campaign_id == campaign_id)
-    if status:
-        stmt = stmt.where(DeliveryResultORM.status == status)
-    if channel:
-        stmt = stmt.where(DeliveryResultORM.channel_code == channel)
-    if cursor:
-        parsed = decode_cursor(cursor)
-        stmt = stmt.where(build_cursor_filter(DeliveryResultORM.completed_at, DeliveryResultORM.id, parsed))
-    stmt = stmt.order_by(DeliveryResultORM.completed_at.desc(), DeliveryResultORM.id.desc()).limit(applied_limit + 1)
-    rows = (await session.execute(stmt)).scalars().all()
-    has_next = len(rows) > applied_limit
-    rows = rows[:applied_limit]
-    next_cursor = encode_cursor(rows[-1].completed_at, rows[-1].id) if has_next and rows else None
-    payload = {
+    try:
+        page = await get_campaign_results_usecase.execute(
+            GetCampaignResultsRequest(
+                campaign_id=campaign_id,
+                manager_id=manager.manager_id,
+                limit=applied_limit,
+                cursor=_to_cursor_point(cursor),
+                status=status,
+                channel=channel,
+            )
+        )
+    except CampaignUsecaseNotFoundError as exc:
+        _handle_usecase_not_found_error(exc)
+
+    next_cursor = None
+    if page.next_cursor is not None:
+        next_cursor = encode_cursor(page.next_cursor.timestamp, page.next_cursor.row_id)
+    payload: dict[str, object] = {
         "items": [
             {
                 "taskId": str(row.task_id),
@@ -514,16 +346,16 @@ async def campaign_results(
                 "userId": str(row.user_id),
                 "recipient": row.recipient_address_snapshot,
                 "channel": row.channel_code,
-                "message": _serialize_message(row.message_snapshot),
+                "message": _serialize_message(dict(row.message_snapshot)),
                 "status": row.status,
                 "attemptCount": row.attempt_count,
                 "providerCode": row.provider_code,
                 "providerRequestId": row.provider_request_id,
                 "createdAt": row.created_at.astimezone(UTC).isoformat(),
                 "startedAt": row.started_at.astimezone(UTC).isoformat() if row.started_at else None,
-                "completedAt": row.completed_at.astimezone(UTC).isoformat(),
+                "completedAt": row.completed_at.astimezone(UTC).isoformat() if row.completed_at else None,
             }
-            for row in rows
+            for row in page.items
         ],
         "nextCursor": next_cursor,
         "consistency": "eventual",
@@ -534,31 +366,33 @@ async def campaign_results(
 @get("/campaigns/{campaign_id:uuid}/errors")
 async def campaign_errors(
     campaign_id: UUID,
-    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
+    get_campaign_errors_usecase: Annotated[GetCampaignErrorsUsecase, Dependency(skip_validation=True)],
     limit: int | None = None,
     cursor: str | None = None,
     channel: str | None = None,
     error_code: str | None = None,
 ) -> Response[dict[str, object]]:
-    _ = await _load_campaign_for_manager(session, campaign_id, manager.manager_id)
     applied_limit = _validate_limit(limit, config)
-    stmt = sa.select(DeliveryAttemptORM).where(DeliveryAttemptORM.campaign_id == campaign_id)
-    stmt = stmt.where(DeliveryAttemptORM.status.in_(["failed", "timed_out", "stale"]))
-    if channel:
-        stmt = stmt.where(DeliveryAttemptORM.channel_code == channel)
-    if error_code:
-        stmt = stmt.where(DeliveryAttemptORM.error_code == error_code)
-    if cursor:
-        parsed = decode_cursor(cursor)
-        stmt = stmt.where(build_cursor_filter(DeliveryAttemptORM.started_at, DeliveryAttemptORM.id, parsed))
-    stmt = stmt.order_by(DeliveryAttemptORM.started_at.desc(), DeliveryAttemptORM.id.desc()).limit(applied_limit + 1)
-    rows = (await session.execute(stmt)).scalars().all()
-    has_next = len(rows) > applied_limit
-    rows = rows[:applied_limit]
-    next_cursor = encode_cursor(rows[-1].started_at, rows[-1].id) if has_next and rows else None
-    payload = {
+    try:
+        page = await get_campaign_errors_usecase.execute(
+            GetCampaignErrorsRequest(
+                campaign_id=campaign_id,
+                manager_id=manager.manager_id,
+                limit=applied_limit,
+                cursor=_to_cursor_point(cursor),
+                channel=channel,
+                error_code=error_code,
+            )
+        )
+    except CampaignUsecaseNotFoundError as exc:
+        _handle_usecase_not_found_error(exc)
+
+    next_cursor = None
+    if page.next_cursor is not None:
+        next_cursor = encode_cursor(page.next_cursor.timestamp, page.next_cursor.row_id)
+    payload: dict[str, object] = {
         "items": [
             {
                 "attemptId": str(row.id),
@@ -573,7 +407,7 @@ async def campaign_errors(
                 "startedAt": row.started_at.astimezone(UTC).isoformat(),
                 "completedAt": row.completed_at.astimezone(UTC).isoformat() if row.completed_at else None,
             }
-            for row in rows
+            for row in page.items
         ],
         "nextCursor": next_cursor,
         "consistency": "eventual",

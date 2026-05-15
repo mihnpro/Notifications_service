@@ -5,8 +5,11 @@ from typing import TYPE_CHECKING
 from litestar import Litestar
 from litestar.di import Provide
 from litestar.exceptions import HTTPException, NotFoundException, ValidationException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from notifications_api.app.http.auth import provide_manager
+from notifications_api.adapters.postgres import PostgresCampaignRepository, PostgresOutboxPublisher
+from notifications_api.app.http.auth import login, provide_manager
 from notifications_api.app.http.campaigns import (
     campaign_errors,
     campaign_results,
@@ -45,7 +48,16 @@ from notifications_api.infra.postgres import (
     provide_engine,
     provide_session,
 )
-from sqlalchemy.exc import IntegrityError
+from notifications_api.usecase.campaigns import (
+    CancelCampaignUsecase,
+    CreateCampaignUsecase,
+    GetCampaignErrorsUsecase,
+    GetCampaignResultsUsecase,
+    GetCampaignStatsUsecase,
+    GetCampaignTasksUsecase,
+    GetCampaignUsecase,
+    ListCampaignsUsecase,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -53,6 +65,86 @@ if TYPE_CHECKING:
 
 def provide_config() -> GlobalConfig:
     return GlobalConfig.load()
+
+
+def provide_campaign_repository(session: AsyncSession) -> PostgresCampaignRepository:
+    return PostgresCampaignRepository(session)
+
+
+def provide_outbox_publisher(session: AsyncSession) -> PostgresOutboxPublisher:
+    return PostgresOutboxPublisher(session)
+
+
+def provide_create_campaign_usecase(
+    session: AsyncSession,
+    campaign_repository: PostgresCampaignRepository,
+    outbox_publisher: PostgresOutboxPublisher,
+) -> CreateCampaignUsecase:
+    return CreateCampaignUsecase(
+        session=session,
+        campaign_repository=campaign_repository,
+        outbox_publisher=outbox_publisher,
+    )
+
+
+def provide_cancel_campaign_usecase(
+    session: AsyncSession,
+    campaign_repository: PostgresCampaignRepository,
+    outbox_publisher: PostgresOutboxPublisher,
+) -> CancelCampaignUsecase:
+    return CancelCampaignUsecase(
+        session=session,
+        campaign_repository=campaign_repository,
+        outbox_publisher=outbox_publisher,
+    )
+
+
+def provide_get_campaign_usecase(campaign_repository: PostgresCampaignRepository) -> GetCampaignUsecase:
+    return GetCampaignUsecase(campaign_repository=campaign_repository)
+
+
+def provide_list_campaigns_usecase(campaign_repository: PostgresCampaignRepository) -> ListCampaignsUsecase:
+    return ListCampaignsUsecase(campaign_repository=campaign_repository)
+
+
+def provide_get_campaign_stats_usecase(
+    campaign_repository: PostgresCampaignRepository,
+    get_campaign_usecase: GetCampaignUsecase,
+) -> GetCampaignStatsUsecase:
+    return GetCampaignStatsUsecase(
+        campaign_repository=campaign_repository,
+        get_campaign_usecase=get_campaign_usecase,
+    )
+
+
+def provide_get_campaign_tasks_usecase(
+    campaign_repository: PostgresCampaignRepository,
+    get_campaign_usecase: GetCampaignUsecase,
+) -> GetCampaignTasksUsecase:
+    return GetCampaignTasksUsecase(
+        campaign_repository=campaign_repository,
+        get_campaign_usecase=get_campaign_usecase,
+    )
+
+
+def provide_get_campaign_results_usecase(
+    campaign_repository: PostgresCampaignRepository,
+    get_campaign_usecase: GetCampaignUsecase,
+) -> GetCampaignResultsUsecase:
+    return GetCampaignResultsUsecase(
+        campaign_repository=campaign_repository,
+        get_campaign_usecase=get_campaign_usecase,
+    )
+
+
+def provide_get_campaign_errors_usecase(
+    campaign_repository: PostgresCampaignRepository,
+    get_campaign_usecase: GetCampaignUsecase,
+) -> GetCampaignErrorsUsecase:
+    return GetCampaignErrorsUsecase(
+        campaign_repository=campaign_repository,
+        get_campaign_usecase=get_campaign_usecase,
+    )
 
 
 @asynccontextmanager
@@ -73,6 +165,7 @@ app = Litestar(
         health,
         healthz,
         readyz,
+        login,
         create_campaign,
         cancel_campaign,
         list_campaigns,
@@ -97,6 +190,16 @@ app = Litestar(
         "engine": Provide(provide_engine, sync_to_thread=False),
         "session": Provide(provide_session),
         "manager": Provide(provide_manager),
+        "campaign_repository": Provide(provide_campaign_repository, sync_to_thread=False),
+        "outbox_publisher": Provide(provide_outbox_publisher, sync_to_thread=False),
+        "create_campaign_usecase": Provide(provide_create_campaign_usecase, sync_to_thread=False),
+        "cancel_campaign_usecase": Provide(provide_cancel_campaign_usecase, sync_to_thread=False),
+        "get_campaign_usecase": Provide(provide_get_campaign_usecase, sync_to_thread=False),
+        "list_campaigns_usecase": Provide(provide_list_campaigns_usecase, sync_to_thread=False),
+        "get_campaign_stats_usecase": Provide(provide_get_campaign_stats_usecase, sync_to_thread=False),
+        "get_campaign_tasks_usecase": Provide(provide_get_campaign_tasks_usecase, sync_to_thread=False),
+        "get_campaign_results_usecase": Provide(provide_get_campaign_results_usecase, sync_to_thread=False),
+        "get_campaign_errors_usecase": Provide(provide_get_campaign_errors_usecase, sync_to_thread=False),
     },
     lifespan=[app_lifespan],
     exception_handlers={

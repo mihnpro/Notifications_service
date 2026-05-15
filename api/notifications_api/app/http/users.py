@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import uuid4
 
 import sqlalchemy as sa
 from litestar import Request, post
+from litestar.datastructures import State
 from litestar.params import Dependency
 from litestar.response import Response
 from litestar.status_codes import HTTP_200_OK
@@ -59,7 +60,7 @@ def _validate_address(channel_code: str, address: str) -> bool:
 @post("/users/bulk")
 async def users_bulk_import(
     data: UsersBulkRequest,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
@@ -88,8 +89,8 @@ async def users_bulk_import(
     try:
         channel_codes = sorted({channel.channel for item in data.items for channel in item.channels})
         db_channels = (
-            await session.execute(sa.select(ChannelORM).where(ChannelORM.code.in_(channel_codes)))
-        ).scalars().all()
+            (await session.execute(sa.select(ChannelORM).where(ChannelORM.code.in_(channel_codes)))).scalars().all()
+        )
         channels_map = {channel.code: channel for channel in db_channels}
         missing = sorted(set(channel_codes) - set(channels_map))
         if missing:
@@ -105,14 +106,12 @@ async def users_bulk_import(
 
         for index, item in enumerate(data.items):
             if item.status not in {"active", "inactive", "blocked"}:
-                errors.append(
-                    {
-                        "index": index,
-                        "externalId": item.external_id,
-                        "code": "INVALID_USER_STATUS",
-                        "message": f"Unsupported user status: {item.status}",
-                    }
-                )
+                errors.append({
+                    "index": index,
+                    "externalId": item.external_id,
+                    "code": "INVALID_USER_STATUS",
+                    "message": f"Unsupported user status: {item.status}",
+                })
                 continue
 
             user = (
@@ -138,27 +137,23 @@ async def users_bulk_import(
 
             for channel_payload in item.channels:
                 if channel_payload.status not in {"active", "inactive"}:
-                    errors.append(
-                        {
-                            "index": index,
-                            "externalId": item.external_id,
-                            "code": "INVALID_CHANNEL_STATUS",
-                            "message": f"Unsupported user_channel status: {channel_payload.status}",
-                            "channel": channel_payload.channel,
-                        }
-                    )
+                    errors.append({
+                        "index": index,
+                        "externalId": item.external_id,
+                        "code": "INVALID_CHANNEL_STATUS",
+                        "message": f"Unsupported user_channel status: {channel_payload.status}",
+                        "channel": channel_payload.channel,
+                    })
                     continue
                 if not _validate_address(channel_payload.channel, channel_payload.address):
-                    errors.append(
-                        {
-                            "index": index,
-                            "externalId": item.external_id,
-                            "code": "INVALID_ADDRESS",
-                            "message": "Address format does not match channel type",
-                            "channel": channel_payload.channel,
-                            "address": channel_payload.address,
-                        }
-                    )
+                    errors.append({
+                        "index": index,
+                        "externalId": item.external_id,
+                        "code": "INVALID_ADDRESS",
+                        "message": "Address format does not match channel type",
+                        "channel": channel_payload.channel,
+                        "address": channel_payload.address,
+                    })
                     continue
 
                 channel = channels_map[channel_payload.channel]
@@ -199,7 +194,7 @@ async def users_bulk_import(
                 else:
                     skipped_user_channels += 1
 
-        payload = {
+        payload: dict[str, object] = {
             "mode": data.mode,
             "regionId": DEFAULT_REGION,
             "inserted": {"users": inserted_users, "userChannels": inserted_user_channels},

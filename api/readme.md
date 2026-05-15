@@ -35,6 +35,7 @@ curl http://localhost:8000/health
 Implemented endpoints:
 
 - `GET /health`, `GET /healthz`, `GET /readyz`
+- `POST /auth/login`
 - `POST /campaigns`
 - `POST /campaigns/{campaign_id}/cancel`
 - `GET /campaigns`
@@ -54,20 +55,39 @@ Implemented endpoints:
 - `POST /dlq/replay`
 - `POST /users/bulk`
 
-Mutating endpoints require:
+Protected endpoints require:
 
-- `Authorization: Bearer <token>`
+- `Authorization: Bearer <access_token>`
 - `Idempotency-Key: <client-key>`
 
-Auth is a temporary stub: API extracts `manager_id` from Bearer token without signature verification.
+Auth is now login/password based:
+
+- passwords are stored as PBKDF2 hashes in `managers.password_hash`
+- `POST /auth/login` issues signed JWT access tokens
+- all protected endpoints validate JWT signature and expiration
+
+Bootstrap manager example:
+
+```bash
+HASH=$(uv run python -c "from notifications_api.app.http.auth import hash_password; print(hash_password('change-me-now'))")
+psql \"$DATABASE_URL\" -c \"INSERT INTO managers (login, password_hash) VALUES ('admin', '$HASH');\"
+```
 
 ## Quick examples
+
+Login example:
+
+```bash
+curl -X POST http://localhost:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login":"admin","password":"change-me-now"}'
+```
 
 Create campaign:
 
 ```bash
 curl -X POST http://localhost:8000/campaigns \
-  -H 'Authorization: Bearer 6f8b5af4-3ae0-4c10-8f6a-5f7467b3c2d0' \
+  -H 'Authorization: Bearer <access_token>' \
   -H 'Idempotency-Key: camp-create-001' \
   -H 'Content-Type: application/json' \
   -d '{
@@ -84,7 +104,7 @@ Replay DLQ:
 
 ```bash
 curl -X POST http://localhost:8000/dlq/replay \
-  -H 'Authorization: Bearer 6f8b5af4-3ae0-4c10-8f6a-5f7467b3c2d0' \
+  -H 'Authorization: Bearer <access_token>' \
   -H 'Idempotency-Key: dlq-replay-001' \
   -H 'Content-Type: application/json' \
   -d '{
@@ -100,7 +120,7 @@ Bulk users import:
 
 ```bash
 curl -X POST http://localhost:8000/users/bulk \
-  -H 'Authorization: Bearer 6f8b5af4-3ae0-4c10-8f6a-5f7467b3c2d0' \
+  -H 'Authorization: Bearer <access_token>' \
   -H 'Idempotency-Key: users-bulk-001' \
   -H 'Content-Type: application/json' \
   -d '{
@@ -136,5 +156,5 @@ Run all:
 
 ```bash
 cd Notifications_service/api
-API_URL=http://localhost:8000 MANAGER_ID=11111111-1111-1111-1111-111111111111 ./scripts/smoke/run_all.sh
+API_URL=http://localhost:8000 AUTH_TOKEN='<jwt-from-/auth/login>' ./scripts/smoke/run_all.sh
 ```

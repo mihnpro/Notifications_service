@@ -1,8 +1,9 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NoReturn
 
 from litestar import Request
+from litestar.datastructures import State
 from litestar.exceptions import HTTPException, NotFoundException, ValidationException
 from litestar.response import Response
 from litestar.status_codes import (
@@ -51,7 +52,7 @@ def build_error_response(
     return Response(content=payload, status_code=status_code)
 
 
-def api_error_handler(_request: Request[Any, Any, Any], exc: ApiError) -> Response[dict[str, Any]]:
+def api_error_handler(_request: Request[Any, Any, State], exc: ApiError) -> Response[dict[str, Any]]:
     return build_error_response(
         status_code=exc.status_code,
         code=exc.code,
@@ -61,7 +62,7 @@ def api_error_handler(_request: Request[Any, Any, Any], exc: ApiError) -> Respon
 
 
 def validation_exception_handler(
-    _request: Request[Any, Any, Any],
+    _request: Request[Any, Any, State],
     exc: ValidationException,
 ) -> Response[dict[str, Any]]:
     details: dict[str, Any] = {"errors": exc.extra} if exc.extra else {}
@@ -74,7 +75,7 @@ def validation_exception_handler(
 
 
 def not_found_exception_handler(
-    _request: Request[Any, Any, Any],
+    _request: Request[Any, Any, State],
     exc: NotFoundException,
 ) -> Response[dict[str, Any]]:
     return build_error_response(
@@ -85,7 +86,7 @@ def not_found_exception_handler(
 
 
 def http_exception_handler(
-    _request: Request[Any, Any, Any],
+    _request: Request[Any, Any, State],
     exc: HTTPException,
 ) -> Response[dict[str, Any]]:
     if exc.status_code == HTTP_401_UNAUTHORIZED:
@@ -105,7 +106,7 @@ def http_exception_handler(
 
 
 def generic_exception_handler(
-    request: Request[Any, Any, Any],
+    request: Request[Any, Any, State],
     exc: Exception,
 ) -> Response[dict[str, Any]]:
     logger.exception(
@@ -122,7 +123,7 @@ def generic_exception_handler(
 
 
 def integrity_error_handler(
-    _request: Request[Any, Any, Any],
+    _request: Request[Any, Any, State],
     _exc: IntegrityError,
 ) -> Response[dict[str, Any]]:
     return build_error_response(
@@ -132,17 +133,17 @@ def integrity_error_handler(
     )
 
 
-def raise_validation(message: str, details: dict[str, Any] | None = None) -> None:
+def raise_validation(message: str, details: dict[str, Any] | None = None) -> NoReturn:
     raise ApiError(status_code=HTTP_400_BAD_REQUEST, code="VALIDATION_ERROR", message=message, details=details or {})
 
 
-def raise_unauthorized(message: str = "Unauthorized") -> None:
+def raise_unauthorized(message: str = "Unauthorized") -> NoReturn:
     raise ApiError(status_code=HTTP_401_UNAUTHORIZED, code="UNAUTHORIZED", message=message)
 
 
-def raise_not_found(message: str) -> None:
+def raise_not_found(message: str) -> NoReturn:
     raise ApiError(status_code=HTTP_404_NOT_FOUND, code="NOT_FOUND", message=message)
 
 
-def raise_conflict(message: str, details: dict[str, Any] | None = None) -> None:
+def raise_conflict(message: str, details: dict[str, Any] | None = None) -> NoReturn:
     raise ApiError(status_code=HTTP_409_CONFLICT, code="CONFLICT", message=message, details=details or {})

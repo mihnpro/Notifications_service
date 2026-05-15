@@ -7,6 +7,7 @@ STATE_FILE="${SMOKE_STATE_FILE:-$SCRIPT_DIR/.smoke.env}"
 
 API_URL="${API_URL:-http://localhost:8000}"
 MANAGER_ID="${MANAGER_ID:-11111111-1111-1111-1111-111111111111}"
+AUTH_TOKEN="${AUTH_TOKEN:-$MANAGER_ID}"
 SMOKE_SEQ=1
 
 LAST_STATUS=""
@@ -64,7 +65,7 @@ _call() {
 
   set -- -sS -o "$LAST_BODY" -w "%{http_code}" -X "$method" "$url"
   if [ "$use_auth" -eq 1 ]; then
-    set -- "$@" -H "Authorization: Bearer ${MANAGER_ID}"
+    set -- "$@" -H "Authorization: Bearer ${AUTH_TOKEN}"
   fi
   if [ "$use_idem" -eq 1 ]; then
     set -- "$@" -H "Idempotency-Key: ${IDEMPOTENCY_KEY}"

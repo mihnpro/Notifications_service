@@ -2,10 +2,19 @@ from uuid import uuid4
 
 from litestar.testing import TestClient
 
+from notifications_api.app.http.auth import build_access_token
 from notifications_api.app.litestar import app
+from notifications_api.infra.config import GlobalConfig
 
-
-AUTH_HEADERS = {"Authorization": f"Bearer {uuid4()}"}
+AUTH_HEADERS = {
+    "Authorization": "Bearer "
+    + build_access_token(
+        manager_id=uuid4(),
+        login="smoke",
+        secret=GlobalConfig.load().auth_jwt_secret,
+        ttl_seconds=GlobalConfig.load().auth_jwt_ttl_seconds,
+    )
+}
 
 
 def _assert_error_payload(response: object, expected_code: str) -> None:

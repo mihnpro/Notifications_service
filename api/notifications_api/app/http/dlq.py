@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from litestar import Request, get, post
+from litestar.datastructures import State
 from litestar.params import Dependency
 from litestar.response import Response
 from litestar.status_codes import HTTP_200_OK
@@ -79,7 +80,7 @@ async def list_dlq(
     rows = (await session.execute(stmt)).scalars().all()
     has_next = len(rows) > applied_limit
     rows = rows[:applied_limit]
-    payload = {
+    payload: dict[str, object] = {
         "items": [
             {
                 "id": str(row.id),
@@ -104,7 +105,7 @@ async def list_dlq(
 @post("/dlq/replay")
 async def replay_dlq(
     data: DlqReplayRequest,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
@@ -134,7 +135,7 @@ async def replay_dlq(
 
     try:
         if config.feature_dlq_replay_noop:
-            payload = {
+            noop_payload: dict[str, object] = {
                 "requested": data.limit,
                 "replayed": 0,
                 "skipped": 0,
@@ -145,11 +146,11 @@ async def replay_dlq(
                 session=session,
                 scope=scope,
                 key=idempotency_key,
-                payload=payload,
+                payload=noop_payload,
                 status_code=HTTP_200_OK,
             )
             await session.commit()
-            return Response(content=payload, status_code=HTTP_200_OK)
+            return Response(content=noop_payload, status_code=HTTP_200_OK)
 
         stmt = sa.select(DlqItemORM).where(
             DlqItemORM.region_id == DEFAULT_REGION,
@@ -162,7 +163,8 @@ async def replay_dlq(
         if data.filter.error_code:
             stmt = stmt.where(DlqItemORM.error_code == data.filter.error_code)
         stmt = (
-            stmt.order_by(DlqItemORM.created_at.asc(), DlqItemORM.id.asc())
+            stmt
+            .order_by(DlqItemORM.created_at.asc(), DlqItemORM.id.asc())
             .limit(data.limit)
             .with_for_update(skip_locked=True)
         )
@@ -173,7 +175,9 @@ async def replay_dlq(
         now = datetime.now(tz=UTC)
         for item in dlq_items:
             task = (
-                await session.execute(sa.select(DeliveryTaskORM).where(DeliveryTaskORM.id == item.task_id).with_for_update())
+                await session.execute(
+                    sa.select(DeliveryTaskORM).where(DeliveryTaskORM.id == item.task_id).with_for_update()
+                )
             ).scalar_one_or_none()
             if task is None or task.status != "dead_lettered":
                 skipped += 1
@@ -186,7 +190,9 @@ async def replay_dlq(
             if data.additional_attempts > 0:
                 task.max_attempts = task.max_attempts + data.additional_attempts
 
-            dedupe_key = f"task-retry-scheduled:{DEFAULT_REGION}:{task.campaign_region_run_id}:{task.id}:{task.attempt_count}"
+            dedupe_key = (
+                f"task-retry-scheduled:{DEFAULT_REGION}:{task.campaign_region_run_id}:{task.id}:{task.attempt_count}"
+            )
             outbox_payload = {
                 "messageType": "TaskRetryScheduled",
                 "version": 1,
@@ -217,7 +223,7 @@ async def replay_dlq(
             item.last_replayed_at = now
             replayed += 1
 
-        payload = {
+        payload: dict[str, object] = {
             "requested": data.limit,
             "matched": len(dlq_items),
             "replayed": replayed,

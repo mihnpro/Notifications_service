@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from datetime import UTC
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from litestar import Request, get, patch, post, put
+from litestar.datastructures import State
 from litestar.params import Dependency
 from litestar.response import Response
 from litestar.status_codes import HTTP_200_OK, HTTP_201_CREATED
@@ -27,12 +27,17 @@ from notifications_api.app.http.idempotency import (
 from notifications_api.app.http.schemas import ApiModel
 from notifications_api.infra.config import GlobalConfig
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
 DEFAULT_REGION = "default"
 QUEUE_GROUPS = {"email", "sms", "push", "messenger"}
 CHANNEL_STATES = {"enabled", "disabled", "degraded"}
 DISABLE_POLICIES = {"retry_later", "fail_fast"}
 
 
+# bobo vava
+# у меня нет времени переписывать, сори что приходиться это видеться
 class CreateChannelRequest(ApiModel):
     code: str
     display_name: str
@@ -106,7 +111,7 @@ async def _get_channel(session: AsyncSession, channel_id: UUID) -> ChannelORM:
 
 async def _run_idempotent_mutation(
     *,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     manager: ManagerIdentity,
     session: AsyncSession,
     config: GlobalConfig,
@@ -157,15 +162,17 @@ async def list_channels(
 ) -> Response[dict[str, object]]:
     _ = manager
     rows = (
-        await session.execute(sa.select(ChannelORM).order_by(ChannelORM.created_at.desc(), ChannelORM.id.desc()))
-    ).scalars().all()
+        (await session.execute(sa.select(ChannelORM).order_by(ChannelORM.created_at.desc(), ChannelORM.id.desc())))
+        .scalars()
+        .all()
+    )
     return Response(content={"items": [_channel_to_payload(row) for row in rows]}, status_code=HTTP_200_OK)
 
 
 @post("/channels")
 async def create_channel(
     data: CreateChannelRequest,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
@@ -175,9 +182,7 @@ async def create_channel(
     _validate_disable_policy(data.disable_policy)
 
     async def _mutation() -> dict[str, object]:
-        exists = (
-            await session.execute(sa.select(ChannelORM).where(ChannelORM.code == data.code))
-        ).scalar_one_or_none()
+        exists = (await session.execute(sa.select(ChannelORM).where(ChannelORM.code == data.code))).scalar_one_or_none()
         if exists is not None:
             raise_validation("Channel code already exists", {"code": data.code})
         channel = ChannelORM(
@@ -189,8 +194,7 @@ async def create_channel(
             queue_group=data.queue_group,
             provider_code=data.provider_code,
             rate_limits=data.rate_limits or {"rps": 10, "maxConcurrency": 10},
-            retry_policy=data.retry_policy
-            or {"maxAttempts": 5, "baseDelaySeconds": 30, "maxDelaySeconds": 1800},
+            retry_policy=data.retry_policy or {"maxAttempts": 5, "baseDelaySeconds": 30, "maxDelaySeconds": 1800},
             disable_policy=data.disable_policy,
         )
         session.add(channel)
@@ -213,7 +217,7 @@ async def create_channel(
 async def patch_channel(
     channel_id: UUID,
     data: PatchChannelRequest,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
@@ -246,7 +250,7 @@ async def patch_channel(
         await session.flush()
         return _channel_to_payload(channel)
 
-    payload = {
+    payload: dict[str, object] = {
         "channelId": str(channel_id),
         **data.model_dump(by_alias=True, mode="json", exclude_none=True),
     }
@@ -264,7 +268,7 @@ async def patch_channel(
 @post("/channels/{channel_id:uuid}/enable")
 async def enable_channel(
     channel_id: UUID,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
@@ -289,7 +293,7 @@ async def enable_channel(
 @post("/channels/{channel_id:uuid}/disable")
 async def disable_channel(
     channel_id: UUID,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
@@ -319,7 +323,7 @@ async def get_channel_regional_configs(
 ) -> Response[dict[str, object]]:
     _ = manager
     channel = await _get_channel(session, channel_id)
-    payload = {
+    payload: dict[str, object] = {
         "items": [
             {
                 "regionId": DEFAULT_REGION,
@@ -341,7 +345,7 @@ async def put_channel_regional_config(
     channel_id: UUID,
     region_id: str,
     data: UpsertRegionalConfigRequest,
-    request: Request[object, object, object],
+    request: Request[Any, Any, State],
     session: Annotated[AsyncSession, Dependency(skip_validation=True)],
     manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
     config: Annotated[GlobalConfig, Dependency(skip_validation=True)],
@@ -372,7 +376,7 @@ async def put_channel_regional_config(
             "disablePolicy": channel.disable_policy,
         }
 
-    payload = {
+    payload: dict[str, object] = {
         "channelId": str(channel_id),
         "regionId": region_id,
         **data.model_dump(by_alias=True, mode="json", exclude_none=False),

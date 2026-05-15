@@ -4,17 +4,22 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
-from litestar import Request
 from litestar.status_codes import HTTP_409_CONFLICT
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from notifications_api.adapters.postgres_models.models import IdempotencyKeyORM
 from notifications_api.app.http.auth import ManagerIdentity
 from notifications_api.app.http.errors import ApiError, raise_validation
 from notifications_api.infra.config import GlobalConfig
+
+if TYPE_CHECKING:
+    from litestar import Request
+    from litestar.datastructures import State
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+IDEMPOTENCY_KEY_MAX_LENGTH = 255
 
 
 @dataclass(slots=True, frozen=True)
@@ -38,23 +43,20 @@ def payload_hash(payload: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def extract_idempotency_key(request: Request[Any, Any, Any]) -> str:
+def extract_idempotency_key(request: Request[Any, Any, State]) -> str:
     value = request.headers.get("Idempotency-Key")
     if value is None or not value.strip():
         raise_validation("Missing Idempotency-Key header")
     trimmed = value.strip()
-    if len(trimmed) > 255:
+    if len(trimmed) > IDEMPOTENCY_KEY_MAX_LENGTH:
         raise_validation("Idempotency-Key is too long")
     return trimmed
 
 
-def build_scope(request: Request[Any, Any, Any], manager: ManagerIdentity) -> str:
+def build_scope(request: Request[Any, Any, State], manager: ManagerIdentity) -> str:
     route_handler = request.route_handler
     paths = route_handler.paths
-    if paths:
-        route_template = sorted(paths)[0]
-    else:
-        route_template = request.url.path
+    route_template = sorted(paths)[0] if paths else request.url.path
     return f"{manager.manager_id}:{request.method.upper()}:{route_template}"
 
 
@@ -67,7 +69,8 @@ async def start_idempotent_request(
     ttl_seconds: int,
 ) -> IdempotencyStartResult:
     stmt = (
-        sa.select(IdempotencyKeyORM)
+        sa
+        .select(IdempotencyKeyORM)
         .where(
             IdempotencyKeyORM.scope == scope,
             IdempotencyKeyORM.key == key,
