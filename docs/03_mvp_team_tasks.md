@@ -1,6 +1,6 @@
 # Notification Platform MVP — план задач для команды из 4 человек
 
-Версия: 1.0  
+Версия: 1.1  
 Цель: расписать реализацию production-compatible MVP сервиса нотификаций силами команды из 4 человек.
 
 ---
@@ -16,7 +16,7 @@ MVP должен показать:
 4. Channels can be added/disabled through DB/API config.
 5. API returns 202 quickly; p95 POST /campaigns < 1500 ms.
 6. Fan-out creates tasks asynchronously for 50k users.
-7. RabbitMQ routes by region + queue_group + priority.
+7. RabbitMQ routes by region + queue_group + priority (for MVP region=default).
 8. Provider stub sleeps random 2-300 seconds and returns random success/error.
 9. Results show recipient, channel, message and timestamps from immutable snapshots.
 10. Worker restart does not lose tasks.
@@ -35,6 +35,22 @@ exactly-once delivery
 ```
 
 But MVP must keep contracts ready for those future steps.
+
+## 0.1 MVP regional simplification
+
+```text
+MVP runs in single-region mode with region_id='default'.
+region_id/regionId stays mandatory in DB entities and message contracts.
+All API/routing/payload examples use regionId=default.
+```
+
+Not required in this MVP:
+
+```text
+multi-region physical DB split
+regional RabbitMQ clusters
+multi-region runtime policy/config operations
+```
 
 ---
 
@@ -330,11 +346,11 @@ Tasks:
 
 ```text
 - Implement POST /campaigns.
-- Validate regionIds.
+- Validate regionIds: in MVP only ["default"] is accepted.
 - Validate recipientSelector types: all, user_ids, external_ids, segment optional.
-- Validate selected channels and regional configs.
-- Insert campaigns and campaign_region_runs.
-- Insert CampaignRegionRunRequested outbox events.
+- Validate selected channels and config for regionId=default.
+- Insert campaigns and one campaign_region_run (regionId=default).
+- Insert one CampaignRegionRunRequested outbox event (regionId=default).
 - Return 202.
 ```
 
@@ -344,7 +360,7 @@ Acceptance:
 POST /campaigns does not query all users
 POST /campaigns does not create delivery_tasks
 POST /campaigns does not call provider
-POST /campaigns inserts one outbox event per region run
+POST /campaigns inserts one outbox event with regionId=default
 ```
 
 Dependencies:
@@ -398,7 +414,7 @@ Tasks:
 - POST /channels
 - PATCH /channels/{id}
 - enable/disable endpoints or admin seed command
-- regional config upsert
+- default-region config upsert (kept in final contract shape)
 - enforce queue_group choices
 ```
 
@@ -406,7 +422,7 @@ Acceptance:
 
 ```text
 can add whatsapp with queue_group=messenger
-new channel is accepted by POST /campaigns after regional config is enabled
+new channel is accepted by POST /campaigns after default-region config is enabled
 channel disabled is rejected for new campaign or handled by selected policy
 ```
 
@@ -455,7 +471,7 @@ Tasks:
 
 ```text
 - Add pgcrypto extension.
-- Create regions/users/user_channels.
+- Create users/user_channels with region_id NOT NULL DEFAULT 'default'.
 - Create channels/channel_regional_configs with queue_group.
 - Create campaigns/campaign_region_runs/campaign_recipients.
 - Create delivery_tasks with PK(region_id, campaign_region_run_id, id).
@@ -472,6 +488,7 @@ migrations run from empty DB
 migrations can be rolled back or reset in dev
 hot table keys include region_id and campaign_region_run_id
 outbox region_id is NOT NULL
+single-region mode works without mandatory runtime region directory operations
 ```
 
 Dependencies:
@@ -630,7 +647,7 @@ Tasks:
 
 ```text
 - Define exchanges: notification.direct, notification.retry, notification.dlx.
-- Define main queues by region + queue_group.
+- Define main queues for region `default` by queue_group, keeping naming template for future regions.
 - Define retry buckets 30s/1m/5m/15m per queue_group.
 - Define DLQ queues.
 - Add durable queues, persistent messages, manual ack, prefetch.
@@ -1021,6 +1038,7 @@ Owned by B, consumed by C.
 
 ```text
 region_id NOT NULL
+for MVP, region_id is fixed to 'default' in runtime paths
 dedupe_key unique per region
 exchange/routing_key set by creator
 payload includes messageType/version/eventId/regionId/campaignRegionRunId/dedupeKey
@@ -1066,6 +1084,7 @@ channel_code = product channel
 queue_group = physical RabbitMQ routing group
 routing_key = notification.{region}.{queue_group}.{priority}
 payload contains both channelCode and queueGroup
+MVP runtime routing uses notification.default.{queue_group}.{priority}
 ```
 
 ---
@@ -1077,7 +1096,7 @@ payload contains both channelCode and queueGroup
 | Person | Work |
 |---|---|
 | A | API skeleton, error envelope, campaign/channel contract stubs |
-| B | DB migrations for core tables, seed regions/channels |
+| B | DB migrations for core tables, seed channels with region_id='default' |
 | C | RabbitMQ topology, outbox event struct, adapter interface skeleton |
 | D | Docker Compose, Makefile, README skeleton |
 
@@ -1183,7 +1202,7 @@ If timeline is shorter, reduce UI and use CLI/scripts, but do not cut source-of-
 ```text
 1. Start local stack.
 2. Run migrations.
-3. Seed regions/channels.
+3. Seed channels with region_id='default' defaults.
 4. Seed 50k users with email/sms/telegram channels.
 5. Add whatsapp via channel API with queue_group=messenger.
 6. Create campaign recipientSelector=all channels=[email,sms].
@@ -1248,6 +1267,22 @@ Message contracts include regionId and campaignRegionRunId.
 queue_group is used for RabbitMQ routing.
 Delivery results store immutable snapshots.
 Semantics documented as at-least-once + idempotency.
+Single-region acceptance is explicit: demo uses regionId=default and does not require multi-region rollout.
+```
+
+---
+
+## 9.1 Migration note: what is postponed after MVP
+
+```text
+Already ready in MVP:
+1. region_id/regionId is present in DB contracts, events and routing keys.
+2. outbox/task dedupe keys are region-scoped and forward-compatible.
+3. final wire contract already includes campaignRegionRunId and regionId.
+
+Add later:
+4. managed regions directory and multi-region config policy matrix.
+5. operational multi-region rollout (DB split, RabbitMQ clusters, traffic isolation).
 ```
 
 ---
