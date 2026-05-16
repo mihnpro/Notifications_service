@@ -77,6 +77,19 @@ func (s *Service) Process(ctx context.Context, body []byte) error {
 	// ── 4. Build finalization params ─────────────────────────────────────────
 	params := s.buildFinalizeParams(t, attempt, msg, result, provErr)
 
+	// Campaign cancellation policy: no new retries should be scheduled once
+	// cancellation was requested; force a terminal transition instead.
+	if params.NewTaskStatus == task.StatusRetryScheduled {
+		cancelRequested, err := s.tasks.IsCampaignCancellationRequested(ctx, t.CampaignID)
+		if err != nil {
+			return fmt.Errorf("check campaign cancellation: %w", err)
+		}
+		if cancelRequested {
+			params.NewTaskStatus = task.StatusCancelled
+			params.RetryAvailableAt = nil
+		}
+	}
+
 	// ── 5. Finalize ───────────────────────────────────────────────────────────
 	if err := s.tasks.Finalize(ctx, params); errors.Is(err, task.ErrLeaseExpired) {
 		// Recovery reclaimed the task while we were calling the provider.

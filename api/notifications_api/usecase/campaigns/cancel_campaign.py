@@ -94,8 +94,9 @@ class CancelCampaignUsecase:
                         region_id=DEFAULT_REGION,
                         event_type="CampaignCancelRequested",
                         payload=payload,
-                        routing_key=f"notification.{DEFAULT_REGION}.fanout.high",
+                        routing_key=f"notification.{DEFAULT_REGION}.cancel.requested",
                         dedupe_key=dedupe_key,
+                        transport_mode="cdc",
                     )
                 )
 

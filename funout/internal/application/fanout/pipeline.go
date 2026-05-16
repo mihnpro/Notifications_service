@@ -132,6 +132,14 @@ func stageInsert(
 				return nil
 			}
 
+			cancelRequested, err := svc.campaigns.IsCancellationRequested(ctx, run.CampaignID)
+			if err != nil {
+				return fmt.Errorf("check campaign cancel status: %w", err)
+			}
+			if cancelRequested {
+				return campaign.ErrCancelled
+			}
+
 			n, err := svc.tasks.InsertBatch(ctx, tasks)
 			if err != nil {
 				return fmt.Errorf("insert batch: %w", err)

@@ -21,11 +21,15 @@ type RunRepository interface {
 
 	// MarkFailed transitions the run to fanout_failed for recovery.
 	MarkFailed(ctx context.Context, runID uuid.UUID, workerID string) error
+
+	// MarkCancelled transitions the run to cancelled and releases lock ownership.
+	MarkCancelled(ctx context.Context, runID uuid.UUID, workerID string) error
 }
 
 // CampaignRepository loads campaign data needed to build delivery tasks.
 type CampaignRepository interface {
 	FindByID(ctx context.Context, id uuid.UUID) (*Campaign, error)
+	IsCancellationRequested(ctx context.Context, id uuid.UUID) (bool, error)
 }
 
 // UserRepository provides keyset-paginated access to target users.

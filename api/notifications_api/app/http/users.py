@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Annotated, Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from litestar import Request, post
@@ -51,12 +51,132 @@ class UsersBulkRequest(ApiModel):
     items: list[UserBulkItem]
 
 
+class RecipientSelectorInput(ApiModel):
+    type: str
+    user_ids: list[UUID] | None = None
+    external_ids: list[str] | None = None
+    filter: dict[str, object] | None = None
+
+
+class UsersEstimateRequest(ApiModel):
+    region_id: str = DEFAULT_REGION
+    channels: list[str]
+    recipient_selector: RecipientSelectorInput
+
+
 def _validate_address(channel: ChannelORM, address: str) -> bool:
     if channel.adapter_name == "email":
         return EMAIL_RE.match(address) is not None
     if channel.adapter_name == "sms":
         return PHONE_RE.match(address) is not None
     return True
+
+
+@post("/users/estimate")
+async def users_estimate(
+    data: UsersEstimateRequest,
+    session: Annotated[AsyncSession, Dependency(skip_validation=True)],
+    manager: Annotated[ManagerIdentity, Dependency(skip_validation=True)],
+) -> Response[dict[str, object]]:
+    _ = manager
+    if data.region_id != DEFAULT_REGION:
+        raise_validation("Only regionId=default is supported in MVP", {})
+    if not data.channels:
+        return Response(
+            content={
+                "regionId": DEFAULT_REGION,
+                "estimatedUsers": 0,
+                "estimatedTasks": 0,
+                "channels": [],
+                "selectorType": data.recipient_selector.type,
+            },
+            status_code=HTTP_200_OK,
+        )
+
+    selector_type = data.recipient_selector.type
+    if selector_type not in {"all", "external_ids", "user_ids", "segment"}:
+        raise_validation("Unsupported recipientSelector.type", {"type": selector_type})
+
+    channel_rows = (
+        await session.execute(
+            sa.select(ChannelORM).where(
+                ChannelORM.code.in_(data.channels),
+                ChannelORM.state != "disabled",
+            )
+        )
+    ).scalars().all()
+    channel_by_code = {channel.code: channel for channel in channel_rows}
+    missing_channels = sorted(set(data.channels) - set(channel_by_code))
+    if missing_channels:
+        raise_validation("Some channels are disabled or missing", {"channels": missing_channels})
+
+    user_filters = [
+        UserORM.region_id == DEFAULT_REGION,
+        UserORM.status == "active",
+    ]
+    if selector_type == "external_ids":
+        external_ids = [value.strip() for value in (data.recipient_selector.external_ids or []) if value.strip()]
+        if not external_ids:
+            return Response(
+                content={
+                    "regionId": DEFAULT_REGION,
+                    "estimatedUsers": 0,
+                    "estimatedTasks": 0,
+                    "channels": sorted(channel_by_code),
+                    "selectorType": selector_type,
+                },
+                status_code=HTTP_200_OK,
+            )
+        user_filters.append(UserORM.external_id.in_(external_ids))
+    elif selector_type == "user_ids":
+        user_ids = data.recipient_selector.user_ids or []
+        if not user_ids:
+            return Response(
+                content={
+                    "regionId": DEFAULT_REGION,
+                    "estimatedUsers": 0,
+                    "estimatedTasks": 0,
+                    "channels": sorted(channel_by_code),
+                    "selectorType": selector_type,
+                },
+                status_code=HTTP_200_OK,
+            )
+        user_filters.append(UserORM.id.in_(user_ids))
+
+    channel_ids = [channel.id for channel in channel_rows]
+    users_query = (
+        sa.select(sa.func.count(sa.distinct(UserORM.id)))
+        .select_from(UserORM)
+        .join(UserChannelORM, UserChannelORM.user_id == UserORM.id)
+        .where(
+            *user_filters,
+            UserChannelORM.channel_id.in_(channel_ids),
+            UserChannelORM.status == "active",
+        )
+    )
+    tasks_query = (
+        sa.select(sa.func.count(UserChannelORM.id))
+        .select_from(UserORM)
+        .join(UserChannelORM, UserChannelORM.user_id == UserORM.id)
+        .where(
+            *user_filters,
+            UserChannelORM.channel_id.in_(channel_ids),
+            UserChannelORM.status == "active",
+        )
+    )
+
+    estimated_users = int((await session.execute(users_query)).scalar_one() or 0)
+    estimated_tasks = int((await session.execute(tasks_query)).scalar_one() or 0)
+    return Response(
+        content={
+            "regionId": DEFAULT_REGION,
+            "estimatedUsers": estimated_users,
+            "estimatedTasks": estimated_tasks,
+            "channels": sorted(channel_by_code),
+            "selectorType": selector_type,
+        },
+        status_code=HTTP_200_OK,
+    )
 
 
 @post("/users/bulk")
