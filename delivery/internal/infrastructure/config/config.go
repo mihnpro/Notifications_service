@@ -15,6 +15,7 @@ type Config struct {
 	Concurrency   int
 	Region        string
 	QueueGroups   []string
+	ProviderURL   string // empty → use StubAdapter
 }
 
 // DeliveryQueues derives the RabbitMQ queue names from region + queue_groups.
@@ -35,8 +36,9 @@ func Load() (*Config, error) {
 		RabbitMQURL:   getEnv("RABBITMQ_URL", "amqp://notifications:notifications@localhost:5672"),
 		RabbitMQVhost: getEnv("RABBITMQ_VHOST", "/notifications"),
 		Concurrency:   getEnvInt("DELIVERY_CONCURRENCY", 16),
-		Region:        getEnv("REGION", "eu"),
+		Region:        getEnv("REGION", "default"),
 		QueueGroups:   strings.Split(getEnv("QUEUE_GROUPS", "default,messenger"), ","),
+		ProviderURL:   getEnv("PROVIDER_URL", ""),
 	}
 
 	cfg.DatabaseURL = fmt.Sprintf(
