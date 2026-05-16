@@ -267,7 +267,7 @@ pub async fn recover_expired_lease(
         lease.id, lease.attempt_count
     );
     let routing_key =
-        retry_bucket::retry_routing_key(&lease.region_id, &lease.queue_group, bucket.label);
+        retry_bucket::main_routing_key(&lease.region_id, &lease.queue_group, &lease.priority);
     let payload = json!({
         "task_id": lease.id,
         "campaign_id": lease.campaign_id,
@@ -279,13 +279,14 @@ pub async fn recover_expired_lease(
         "reason": "lease_expired",
         "scheduled_at": Utc::now(),
         "available_at": available_at,
+        "retry_bucket": bucket.label,
     });
 
     insert_outbox(
         &mut tx,
         &lease.region_id,
         "TaskRetryScheduled",
-        retry_bucket::EXCHANGE_RETRY,
+        retry_bucket::EXCHANGE_DIRECT,
         &routing_key,
         &dedupe_key,
         &payload,

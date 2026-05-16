@@ -2,7 +2,7 @@
 //!
 //! Verifies that after our topology rework recover still emits the correct
 //! outbox rows on:
-//!   1. lease expiry → `notification.retry` + bucketed routing key
+//!   1. lease expiry → `notification.direct` + main routing key (bucket label in payload)
 //!   2. retry_scanner repush → `notification.direct` + main routing key
 //! and that both paths are idempotent under repeated ticks.
 
@@ -51,6 +51,7 @@ async fn start_pg() -> (testcontainers::ContainerAsync<Postgres>, PgPool) {
 /// targets repo.rs state machine, not referential integrity.
 async fn setup_schema(pool: &PgPool) {
     let ddl = r#"
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
     CREATE TABLE delivery_tasks (
         id uuid PRIMARY KEY,
         campaign_id uuid NOT NULL,
@@ -134,6 +135,7 @@ async fn setup_schema(pool: &PgPool) {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         task_id uuid NOT NULL,
         campaign_id uuid NOT NULL,
+        region_id text NOT NULL DEFAULT 'default',
         channel_code text NOT NULL,
         reason_code text NOT NULL,
         error_code text,
@@ -258,11 +260,12 @@ async fn lease_expired_emits_retry_outbox_with_bucket_routing_key() {
 
     let outbox = outbox_for_task(&pool, task.id).await;
     assert_eq!(outbox.len(), 1, "expected single retry outbox row");
-    let (exchange, routing_key, dedupe, _payload) = &outbox[0];
-    assert_eq!(exchange, "notification.retry");
-    // attempt_count=1 → bucket 30s
-    assert_eq!(routing_key, "notification.default.email.retry.30s");
+    let (exchange, routing_key, dedupe, payload) = &outbox[0];
+    assert_eq!(exchange, "notification.direct");
+    assert_eq!(routing_key, "notification.default.email.normal");
     assert_eq!(dedupe, &format!("lease_recovery_retry:{}:1", task.id));
+    // bucket label carried in payload for observability (attempt_count=1 → 30s)
+    assert_eq!(payload["retry_bucket"], "30s");
 
     // stats: sending--, retry_scheduled++
     let (sending, retry_scheduled): (i64, i64) = sqlx::query_as(
@@ -308,8 +311,10 @@ async fn lease_recovery_is_idempotent_on_repeat_ticks() {
 
     let outbox = outbox_for_task(&pool, task.id).await;
     assert_eq!(outbox.len(), 1, "no duplicate outbox row after re-tick");
+    assert_eq!(outbox[0].0, "notification.direct");
+    assert_eq!(outbox[0].1, "notification.default.email.normal");
     assert_eq!(
-        outbox[0].1, "notification.default.email.retry.1m",
+        outbox[0].3["retry_bucket"], "1m",
         "attempt_count=2 must map to 1m bucket"
     );
 }
