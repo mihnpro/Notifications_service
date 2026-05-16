@@ -45,7 +45,7 @@ from notifications_api.app.http.errors import (
     validation_exception_handler,
 )
 from notifications_api.app.http.health import health, healthz, readyz
-from notifications_api.app.http.users import users_bulk_import
+from notifications_api.app.http.users import users_bulk_import, users_estimate
 from notifications_api.app.middleware import PrometheusMiddleware
 from notifications_api.infra.config import GlobalConfig
 from notifications_api.infra.postgres import (
