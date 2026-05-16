@@ -67,7 +67,7 @@ func insertDeliveryTasks(ctx context.Context, tx pgx.Tx, tasks []*task.Task) (in
 				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
 				'queued',$13,0,$14,$15,$15
 			)
-			ON CONFLICT (idempotency_key) DO NOTHING`,
+			ON CONFLICT (region_id, idempotency_key) DO NOTHING`,
 			t.ID, t.CampaignID, t.CampaignRegionRunID, t.RegionID,
 			t.UserID, t.UserChannelID, t.ChannelID,
 			t.ChannelCode, t.QueueGroup,
@@ -107,7 +107,7 @@ func insertOutboxEvents(ctx context.Context, tx pgx.Tx, tasks []*task.Task) erro
 				$1, 'DeliveryTaskCreated', $2, 'notification.direct', $3,
 				'pending', $4, NOW(), NOW()
 			)
-			ON CONFLICT (dedupe_key) DO NOTHING`,
+			ON CONFLICT (region_id, dedupe_key) DO NOTHING`,
 			t.RegionID, []byte(payload), t.RoutingKey(), t.OutboxDedupeKey(),
 		)
 	}
