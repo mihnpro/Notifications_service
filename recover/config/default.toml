@@ -52,6 +52,17 @@ busy_interval_ms = 200
 mid_interval_ms = 1000
 concurrency = 4
 
+[jobs.outbox_failed_scanner]
+# outbox_events.status='failed' (publisher исчерпал ретраи / unroutable) →
+# dlq_items + delivery_tasks.status='dead_lettered'. Без джоба такие сообщения
+# теряются молча: никто после publisher этот статус не читает.
+enabled = true
+batch_size = 100
+idle_interval_ms = 15000
+busy_interval_ms = 500
+mid_interval_ms = 2000
+concurrency = 4
+
 [retry]
 # Бакеты в секундах по attempt_count (1-based). Падает на последний при превышении.
 buckets_seconds = [30, 60, 300, 900]

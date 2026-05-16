@@ -6,7 +6,7 @@ use recover::{chaos, config, db, jobs, metrics, rmq, server, shutdown, state};
 
 use recover::jobs::{
     finalizer::CampaignFinalizer, lease::LeaseRecovery, outbox::OutboxRecovery,
-    retry_scanner::RetryScanner, ServiceContext,
+    outbox_failed::OutboxFailedScanner, retry_scanner::RetryScanner, ServiceContext,
 };
 
 #[derive(Parser)]
@@ -125,6 +125,13 @@ async fn run_serve(cfg: config::Config) -> Result<()> {
         ctx.clone(),
         shutdown.clone(),
     ));
+    let outbox_failed_task = tokio::spawn(jobs::run_job(
+        OutboxFailedScanner {
+            cfg: cfg.jobs.outbox_failed_scanner.clone(),
+        },
+        ctx.clone(),
+        shutdown.clone(),
+    ));
     let backlog_task = tokio::spawn(jobs::backlog::run(ctx.clone(), shutdown.clone()));
 
     shutdown.cancelled().await;
@@ -135,6 +142,7 @@ async fn run_serve(cfg: config::Config) -> Result<()> {
         lease_task,
         retry_task,
         finalizer_task,
+        outbox_failed_task,
         backlog_task
     );
     if let Err(e) = http_task.await {
@@ -178,6 +186,13 @@ async fn run_once(cfg: config::Config, job: &str) -> Result<()> {
         "campaign_finalizer" => {
             CampaignFinalizer {
                 cfg: cfg.jobs.campaign_finalizer.clone(),
+            }
+            .tick(&ctx)
+            .await
+        }
+        "outbox_failed_scanner" => {
+            OutboxFailedScanner {
+                cfg: cfg.jobs.outbox_failed_scanner.clone(),
             }
             .tick(&ctx)
             .await

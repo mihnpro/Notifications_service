@@ -267,7 +267,7 @@ pub async fn recover_expired_lease(
         lease.id, lease.attempt_count
     );
     let routing_key =
-        retry_bucket::retry_routing_key(&lease.region_id, &lease.queue_group, bucket.label);
+        retry_bucket::main_routing_key(&lease.region_id, &lease.queue_group, &lease.priority);
     let payload = json!({
         "task_id": lease.id,
         "campaign_id": lease.campaign_id,
@@ -279,13 +279,14 @@ pub async fn recover_expired_lease(
         "reason": "lease_expired",
         "scheduled_at": Utc::now(),
         "available_at": available_at,
+        "retry_bucket": bucket.label,
     });
 
     insert_outbox(
         &mut tx,
         &lease.region_id,
         "TaskRetryScheduled",
-        retry_bucket::EXCHANGE_RETRY,
+        retry_bucket::EXCHANGE_DIRECT,
         &routing_key,
         &dedupe_key,
         &payload,
@@ -819,4 +820,179 @@ async fn insert_outbox(
     .await
     .context("insert_outbox")?;
     Ok(res.rows_affected() > 0)
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FailedOutbox {
+    pub id: Uuid,
+    pub region_id: String,
+    pub dedupe_key: String,
+    pub last_error: Option<String>,
+    pub payload: serde_json::Value,
+}
+
+pub async fn fetch_failed_outbox(
+    pool: &PgPool,
+    batch_size: i32,
+    regions: &[String],
+) -> Result<Vec<FailedOutbox>> {
+    let region_arg = region_filter(regions);
+    let rows = sqlx::query_as::<_, FailedOutbox>(
+        r#"
+        SELECT id, region_id, dedupe_key, last_error, payload
+        FROM outbox_events
+        WHERE status = 'failed'
+          AND ($2::text[] IS NULL OR region_id = ANY($2))
+        ORDER BY created_at ASC
+        LIMIT $1
+        "#,
+    )
+    .bind(batch_size)
+    .bind(region_arg.as_deref())
+    .fetch_all(pool)
+    .await
+    .context("fetch_failed_outbox")?;
+    Ok(rows)
+}
+
+pub enum FailedOutboxOutcome {
+    DeadLettered,
+    TaskMissing,
+    Skipped,
+}
+
+pub async fn dead_letter_failed_outbox(
+    pool: &PgPool,
+    row: &FailedOutbox,
+) -> Result<FailedOutboxOutcome> {
+    // Best-effort parse: a malformed payload still gets the outbox row purged
+    // so it stops blocking the scanner — but no DLQ entry is created.
+    let task_id = row
+        .payload
+        .get("task_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok());
+
+    let mut tx = pool.begin().await.context("begin tx")?;
+
+    let task_id = match task_id {
+        Some(id) => id,
+        None => {
+            sqlx::query("DELETE FROM outbox_events WHERE id = $1")
+                .bind(row.id)
+                .execute(&mut *tx)
+                .await
+                .context("purge unparseable outbox row")?;
+            tx.commit().await.context("commit purge")?;
+            return Ok(FailedOutboxOutcome::TaskMissing);
+        }
+    };
+
+    let task: Option<TaskRow> = sqlx::query_as::<_, TaskRow>(
+        r#"
+        SELECT id, campaign_id, region_id, queue_group, priority, channel_code,
+               status, attempt_count, max_attempts, available_at
+        FROM delivery_tasks
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(task_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("lock task for dead-letter")?;
+
+    let task = match task {
+        Some(t) => t,
+        None => {
+            sqlx::query("DELETE FROM outbox_events WHERE id = $1")
+                .bind(row.id)
+                .execute(&mut *tx)
+                .await
+                .context("purge orphan outbox row")?;
+            tx.commit().await.context("commit purge orphan")?;
+            return Ok(FailedOutboxOutcome::TaskMissing);
+        }
+    };
+
+    let prev_status = task.status.as_str();
+    let already_terminal =
+        matches!(prev_status, "succeeded" | "failed" | "dead_lettered" | "cancelled");
+
+    if !already_terminal {
+        sqlx::query(
+            r#"
+            UPDATE delivery_tasks
+            SET status = 'dead_lettered',
+                lease_token = NULL,
+                lease_until = NULL,
+                lease_owner = NULL,
+                completed_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(task.id)
+        .execute(&mut *tx)
+        .await
+        .context("dead-letter task from publish failure")?;
+
+        let stats_sql = format!(
+            "UPDATE campaign_stats
+             SET {col} = GREATEST({col} - 1, 0),
+                 dead_lettered = dead_lettered + 1,
+                 updated_at = NOW()
+             WHERE campaign_id = $1",
+            col = prev_status
+        );
+        sqlx::query(&stats_sql)
+            .bind(task.campaign_id)
+            .execute(&mut *tx)
+            .await
+            .context("rebalance stats for publish dead-letter")?;
+    }
+
+    let last_err = row.last_error.as_deref().unwrap_or("");
+    let reason_code = if last_err.starts_with("unroutable") {
+        "publish_unroutable"
+    } else {
+        "publish_exhausted"
+    };
+    let truncated_err: Option<String> = row
+        .last_error
+        .as_deref()
+        .map(|s| s.chars().take(2000).collect());
+
+    sqlx::query(
+        r#"
+        INSERT INTO dlq_items (id, task_id, campaign_id, channel_code,
+                               reason_code, error_message, status, created_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'open', NOW())
+        ON CONFLICT (task_id) DO UPDATE
+            SET status = 'open',
+                reason_code = EXCLUDED.reason_code,
+                error_message = EXCLUDED.error_message
+        "#,
+    )
+    .bind(task.id)
+    .bind(task.campaign_id)
+    .bind(&task.channel_code)
+    .bind(reason_code)
+    .bind(truncated_err)
+    .execute(&mut *tx)
+    .await
+    .context("insert dlq from publish failure")?;
+
+    let purged = sqlx::query("DELETE FROM outbox_events WHERE id = $1 AND status = 'failed'")
+        .bind(row.id)
+        .execute(&mut *tx)
+        .await
+        .context("purge failed outbox row")?;
+
+    if purged.rows_affected() == 0 {
+        tx.rollback().await.ok();
+        return Ok(FailedOutboxOutcome::Skipped);
+    }
+
+    tx.commit().await.context("commit dead-letter from publish")?;
+    Ok(FailedOutboxOutcome::DeadLettered)
 }

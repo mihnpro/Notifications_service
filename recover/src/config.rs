@@ -49,6 +49,7 @@ pub struct JobsConfig {
     pub lease_recovery: JobConfig,
     pub retry_scanner: JobConfig,
     pub campaign_finalizer: JobConfig,
+    pub outbox_failed_scanner: JobConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]

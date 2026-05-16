@@ -2,6 +2,7 @@ pub mod backlog;
 pub mod finalizer;
 pub mod lease;
 pub mod outbox;
+pub mod outbox_failed;
 pub mod retry_scanner;
 
 use std::sync::Arc;
