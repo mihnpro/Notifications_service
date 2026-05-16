@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from litestar import Litestar
 from litestar.di import Provide
 
-from notifications_api.app.http.dlq import DlqController
 from notifications_api.app.http.health import health
 from notifications_api.infra.config import GlobalConfig
 from notifications_api.infra.postgres import (
@@ -37,7 +36,7 @@ async def app_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
 
 
 app = Litestar(
-    route_handlers=[health, DlqController],
+    route_handlers=[health],
     dependencies={
         "config": Provide(provide_config, sync_to_thread=False),
         "engine": Provide(provide_engine, sync_to_thread=False),
