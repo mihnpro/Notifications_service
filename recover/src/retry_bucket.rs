@@ -63,12 +63,12 @@ mod tests {
     #[test]
     fn routing_key_format() {
         assert_eq!(
-            retry_routing_key("eu", "default", "30s"),
-            "notification.eu.default.retry.30s"
+            retry_routing_key("eu", "email", "30s"),
+            "notification.eu.email.retry.30s"
         );
         assert_eq!(
-            main_routing_key("eu", "default", "normal"),
-            "notification.eu.default.normal"
+            main_routing_key("eu", "email", "normal"),
+            "notification.eu.email.normal"
         );
     }
 }
