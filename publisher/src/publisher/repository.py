@@ -18,6 +18,7 @@ _CLAIM_SQL = text("""
         SELECT id
         FROM outbox_events
         WHERE status = 'pending'
+          AND transport_mode = 'rabbitmq_direct'
           AND next_attempt_at <= now()
         ORDER BY next_attempt_at
         LIMIT :batch_size

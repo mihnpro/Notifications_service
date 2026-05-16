@@ -51,3 +51,19 @@ func (r *CampaignRepository) FindByID(ctx context.Context, id uuid.UUID) (*campa
 
 	return &c, nil
 }
+
+func (r *CampaignRepository) IsCancellationRequested(ctx context.Context, id uuid.UUID) (bool, error) {
+	const q = `
+		SELECT status
+		FROM campaigns
+		WHERE id = $1`
+
+	var status string
+	if err := r.pool.QueryRow(ctx, q, id).Scan(&status); err != nil {
+		if err == pgx.ErrNoRows {
+			return false, campaign.ErrNotFound
+		}
+		return false, fmt.Errorf("campaign status lookup: %w", err)
+	}
+	return status == "cancelling" || status == "cancelled", nil
+}

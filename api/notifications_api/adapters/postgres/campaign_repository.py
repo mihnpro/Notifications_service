@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +26,16 @@ from notifications_api.protocol.campaign import (
     OutboxPublisherProtocol,
     Page,
 )
+
+
+@dataclass(slots=True, frozen=True)
+class PendingTaskCancelCounts:
+    queued: int
+    retry_scheduled: int
+
+    @property
+    def total(self) -> int:
+        return self.queued + self.retry_scheduled
 
 
 class PostgresCampaignRepository(CampaignRepositoryProtocol):
@@ -202,6 +213,84 @@ class PostgresCampaignRepository(CampaignRepositoryProtocol):
             last = rows[-1]
             next_cursor = CursorPoint(timestamp=last.started_at, row_id=last.id)
         return Page(items=[row.to_domain() for row in rows], next_cursor=next_cursor)
+
+    async def get_campaign_for_update(self, campaign_id: UUID):
+        stmt = sa.select(CampaignORM).where(CampaignORM.id == campaign_id).with_for_update()
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return row.to_domain() if row is not None else None
+
+    async def cancel_active_region_runs_for_campaign(self, campaign_id: UUID) -> list[UUID]:
+        stmt = (
+            sa.update(CampaignRegionRunORM)
+            .where(
+                CampaignRegionRunORM.campaign_id == campaign_id,
+                CampaignRegionRunORM.status.in_(("fanout_pending", "fanout_running")),
+            )
+            .values(
+                status="cancelled",
+                completed_at=sa.func.coalesce(CampaignRegionRunORM.completed_at, sa.func.now()),
+                fanout_lock_owner=None,
+                fanout_lock_until=None,
+            )
+            .returning(CampaignRegionRunORM.id)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return list(rows)
+
+    async def cancel_pending_tasks_for_campaign(self, campaign_id: UUID) -> PendingTaskCancelCounts:
+        stmt = sa.text(
+            """
+            WITH updated AS (
+                UPDATE delivery_tasks
+                SET status = 'cancelled',
+                    lease_owner = NULL,
+                    lease_token = NULL,
+                    lease_until = NULL,
+                    completed_at = COALESCE(completed_at, now())
+                WHERE campaign_id = :campaign_id
+                  AND status IN ('queued', 'retry_scheduled')
+                RETURNING status
+            )
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'queued')::bigint AS queued_count,
+                COUNT(*) FILTER (WHERE status = 'retry_scheduled')::bigint AS retry_scheduled_count
+            FROM updated
+            """
+        )
+        row = (await self._session.execute(stmt, {"campaign_id": campaign_id})).mappings().one()
+        return PendingTaskCancelCounts(
+            queued=int(row["queued_count"] or 0),
+            retry_scheduled=int(row["retry_scheduled_count"] or 0),
+        )
+
+    async def apply_cancel_stats_delta(self, campaign_id: UUID, counts: PendingTaskCancelCounts) -> None:
+        if counts.total == 0:
+            return
+        stmt = (
+            sa.update(CampaignStatsORM)
+            .where(
+                CampaignStatsORM.campaign_id == campaign_id,
+                CampaignStatsORM.region_id == "default",
+            )
+            .values(
+                queued=sa.func.greatest(CampaignStatsORM.queued - counts.queued, 0),
+                retry_scheduled=sa.func.greatest(CampaignStatsORM.retry_scheduled - counts.retry_scheduled, 0),
+                cancelled=CampaignStatsORM.cancelled + counts.total,
+                updated_at=sa.func.now(),
+            )
+        )
+        await self._session.execute(stmt)
+
+    async def mark_campaign_cancelled(self, campaign_id: UUID) -> None:
+        stmt = (
+            sa.update(CampaignORM)
+            .where(
+                CampaignORM.id == campaign_id,
+                CampaignORM.status.in_(("running", "cancelling")),
+            )
+            .values(status="cancelled", completed_at=sa.func.coalesce(CampaignORM.completed_at, sa.func.now()))
+        )
+        await self._session.execute(stmt)
 
 
 class PostgresOutboxPublisher(OutboxPublisherProtocol):

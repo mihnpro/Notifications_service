@@ -91,3 +91,23 @@ func (r *RunRepository) MarkFailed(ctx context.Context, runID uuid.UUID, workerI
 	_, err := r.pool.Exec(ctx, q, runID, workerID)
 	return err
 }
+
+func (r *RunRepository) MarkCancelled(ctx context.Context, runID uuid.UUID, workerID string) error {
+	const q = `
+		UPDATE campaign_region_runs
+		SET    status = 'cancelled',
+		       completed_at = NOW(),
+		       fanout_lock_owner = NULL,
+		       fanout_lock_until = NULL
+		WHERE  id = $1
+		  AND  fanout_lock_owner = $2`
+
+	tag, err := r.pool.Exec(ctx, q, runID, workerID)
+	if err != nil {
+		return fmt.Errorf("mark run cancelled: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return campaign.ErrLockLost
+	}
+	return nil
+}
