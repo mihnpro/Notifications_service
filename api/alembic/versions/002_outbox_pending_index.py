@@ -6,13 +6,13 @@ Revises: 001
 Create Date: 2026-05-15 21:30:00.000000+03:00
 
 """
-from typing import Sequence, Union
+from typing import Sequence
 
 from alembic import op
 import sqlalchemy as sa
 
 revision: str = '002'
-down_revision: str | Sequence[str] | None = '001'
+down_revision: str | Sequence[str] | None = '002_mvp_single_region_defaults'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

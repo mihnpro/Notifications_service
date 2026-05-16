@@ -29,7 +29,6 @@ type FinalizeParams struct {
 	// Stats transition: always sending→NewTaskStatus.
 	PrevStatus Status // always StatusSending after lease
 
-	// Non-empty only when NewTaskStatus == StatusRetryScheduled.
-	// Used to build the outbox_events routing_key.
-	RetryRoutingKey string
+	// Set when NewTaskStatus == StatusDeadLettered.
+	ChannelCode string
 }

@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "003_add_managers_auth_table"
-down_revision: str | Sequence[str] | None = "002_mvp_single_region_defaults"
+down_revision: str | Sequence[str] | None = "002"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 from litestar import Litestar
 from litestar.di import Provide
 from litestar.exceptions import HTTPException, NotFoundException, ValidationException
+from litestar.openapi import OpenAPIConfig
+from litestar.openapi.plugins import SwaggerRenderPlugin
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -161,6 +163,12 @@ async def app_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
 
 
 app = Litestar(
+    openapi_config=OpenAPIConfig(
+        title="Notifications API",
+        version="1.0.0",
+        path="/schema",
+        render_plugins=[SwaggerRenderPlugin()],
+    ),
     route_handlers=[
         health,
         healthz,

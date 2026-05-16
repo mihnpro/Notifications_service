@@ -211,8 +211,8 @@ func TestThroughput(t *testing.T) {
 }
 
 // TestRetryPath_Throughput measures the retry code path under load:
-// a transient error causes Finalize to write outbox_events + set
-// status=retry_scheduled. Asserts all tasks end in retry_scheduled.
+// a transient error causes Finalize to set status=retry_scheduled.
+// Re-enqueue is handled by the recover service. Asserts all tasks end in retry_scheduled.
 //
 // Run: go test -run TestRetryPath_Throughput -v ./loadtest/
 func TestRetryPath_Throughput(t *testing.T) {

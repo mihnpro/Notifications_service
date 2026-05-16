@@ -215,7 +215,7 @@ func BenchmarkExtendLease(b *testing.B) {
 }
 
 // BenchmarkFinalizeRetry measures Finalize on the retry path
-// (StatusRetryScheduled — writes outbox_events + updates stats).
+// (StatusRetryScheduled — updates task status + stats; recover handles re-enqueue).
 //
 // Run: go test -bench=BenchmarkFinalizeRetry -benchtime=10s ./loadtest/
 func BenchmarkFinalizeRetry(b *testing.B) {
@@ -240,7 +240,6 @@ func BenchmarkFinalizeRetry(b *testing.B) {
 	errType := "transient"
 	errCode := "LT_TRANSIENT"
 	errMsg := "bench retry"
-	retryKey := "notification.default.email.retry.30s"
 	b.ResetTimer()
 	b.ReportAllocs()
 
@@ -259,7 +258,6 @@ func BenchmarkFinalizeRetry(b *testing.B) {
 			ErrorCode:        &errCode,
 			ErrorMessage:     &errMsg,
 			RetryAvailableAt: &retryAt,
-			RetryRoutingKey:  retryKey,
 		}
 		if err := repo.Finalize(ctx, params); err != nil {
 			b.Fatalf("iter %d: %v", i, err)

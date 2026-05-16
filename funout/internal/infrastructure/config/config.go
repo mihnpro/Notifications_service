@@ -13,6 +13,18 @@ type Config struct {
 	WorkerID      string
 	BatchSize     int
 	Concurrency   int
+	Region        string
+}
+
+// FanoutQueues returns the list of RabbitMQ queue names this worker should consume.
+// Matches the routing keys written by the API: notification.{region}.fanout.{priority}.
+func (c *Config) FanoutQueues() []string {
+	priorities := []string{"high", "normal", "low"}
+	queues := make([]string, 0, len(priorities))
+	for _, p := range priorities {
+		queues = append(queues, fmt.Sprintf("notification.%s.fanout.%s", c.Region, p))
+	}
+	return queues
 }
 
 func Load() (*Config, error) {
@@ -22,6 +34,7 @@ func Load() (*Config, error) {
 		RabbitMQVhost: getEnv("RABBITMQ_VHOST", "/notifications"),
 		BatchSize:     getEnvInt("FANOUT_BATCH_SIZE", 1000),
 		Concurrency:   getEnvInt("FANOUT_CONCURRENCY", 4),
+		Region:        getEnv("REGION", "default"),
 	}
 
 	cfg.DatabaseURL = fmt.Sprintf(

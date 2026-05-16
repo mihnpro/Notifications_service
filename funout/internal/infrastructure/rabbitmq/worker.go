@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	fanoutQueue    = "notification.fanout"
 	prefetchCount  = 8
 	reconnectDelay = 5 * time.Second
 )
@@ -29,14 +28,16 @@ type MessageHandler interface {
 type Worker struct {
 	amqpURL     string
 	vhost       string
+	queues      []string // e.g. ["notification.default.fanout.high", ...]
 	concurrency int64
 	handler     MessageHandler
 }
 
-func NewWorker(amqpURL, vhost string, concurrency int, handler MessageHandler) *Worker {
+func NewWorker(amqpURL, vhost string, queues []string, concurrency int, handler MessageHandler) *Worker {
 	return &Worker{
 		amqpURL:     amqpURL,
 		vhost:       vhost,
+		queues:      queues,
 		concurrency: int64(concurrency),
 		handler:     handler,
 	}
@@ -78,19 +79,24 @@ func (w *Worker) runOnce(ctx context.Context) error {
 		return fmt.Errorf("qos: %w", err)
 	}
 
-	msgs, err := ch.Consume(fanoutQueue, "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("consume: %w", err)
+	// Fan-in: merge all priority queues into one channel.
+	merged := make(chan amqp.Delivery, int(w.concurrency))
+	for _, q := range w.queues {
+		msgs, err := ch.Consume(q, "", false, false, false, false, nil)
+		if err != nil {
+			return fmt.Errorf("consume %s: %w", q, err)
+		}
+		go forwardDeliveries(ctx, msgs, merged)
 	}
 
-	slog.Info("fanout worker ready", "queue", fanoutQueue)
+	slog.Info("fanout worker ready", "queues", w.queues)
 
 	sem := semaphore.NewWeighted(w.concurrency)
 	connClosed := conn.NotifyClose(make(chan *amqp.Error, 1))
 
 	for {
 		select {
-		case d, ok := <-msgs:
+		case d, ok := <-merged:
 			if !ok {
 				return fmt.Errorf("deliveries channel closed")
 			}
@@ -129,5 +135,24 @@ func (w *Worker) handle(ctx context.Context, d amqp.Delivery, sem *semaphore.Wei
 		slog.Error("fanout failed, nacking", "error", err)
 		// requeue=false: rely on outbox recovery to re-emit the signal.
 		d.Nack(false, false) //nolint:errcheck
+	}
+}
+
+// forwardDeliveries copies from a single queue consumer to the merged channel.
+func forwardDeliveries(ctx context.Context, src <-chan amqp.Delivery, dst chan<- amqp.Delivery) {
+	for {
+		select {
+		case d, ok := <-src:
+			if !ok {
+				return
+			}
+			select {
+			case dst <- d:
+			case <-ctx.Done():
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
 	}
 }
