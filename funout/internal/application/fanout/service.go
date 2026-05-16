@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/notifications/funout/internal/infrastructure/metrics"
 
 	"github.com/notifications/funout/internal/domain/campaign"
 	"github.com/notifications/funout/internal/domain/task"
@@ -59,9 +62,12 @@ func (s *Service) Execute(ctx context.Context, body []byte) error {
 		"worker_id", s.workerID,
 	)
 
+	start := time.Now()
+
 	run, err := s.runs.AcquireLock(ctx, msg.CampaignRegionRunID, s.workerID)
 	if errors.Is(err, campaign.ErrAlreadyLocked) {
 		log.Info("fanout skipped: run already locked")
+		metrics.RunsTotal.WithLabelValues("skipped").Inc()
 		return campaign.ErrAlreadyLocked
 	}
 	if err != nil {
@@ -76,8 +82,12 @@ func (s *Service) Execute(ctx context.Context, body []byte) error {
 	}
 
 	total, pipelineErr := s.runPipeline(ctx, run, camp)
+	dur := time.Since(start).Seconds()
+
 	if pipelineErr != nil {
 		log.Error("fanout pipeline failed", "error", pipelineErr)
+		metrics.RunsTotal.WithLabelValues("failed").Inc()
+		metrics.RunDuration.WithLabelValues("failed").Observe(dur)
 		if mfErr := s.runs.MarkFailed(ctx, run.ID, s.workerID); mfErr != nil {
 			log.Warn("could not mark run as failed", "error", mfErr)
 		}
@@ -88,7 +98,10 @@ func (s *Service) Execute(ctx context.Context, body []byte) error {
 		return fmt.Errorf("mark completed: %w", err)
 	}
 
-	log.Info("fanout completed", "total_tasks_inserted", total)
+	metrics.RunsTotal.WithLabelValues("completed").Inc()
+	metrics.RunDuration.WithLabelValues("completed").Observe(dur)
+	metrics.TasksInserted.Add(float64(total))
+	log.Info("fanout completed", "total_tasks_inserted", total, "duration_ms", int(dur*1000))
 	return nil
 }
 

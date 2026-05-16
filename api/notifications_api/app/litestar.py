@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from notifications_api.adapters.postgres import PostgresCampaignRepository, PostgresOutboxPublisher
 from notifications_api.app.http.auth import login, provide_manager
+from notifications_api.app.http.metrics_handler import prometheus_metrics
 from notifications_api.app.http.campaigns import (
     campaign_errors,
     campaign_results,
@@ -43,6 +44,7 @@ from notifications_api.app.http.errors import (
 )
 from notifications_api.app.http.health import health, healthz, readyz
 from notifications_api.app.http.users import users_bulk_import
+from notifications_api.app.middleware import PrometheusMiddleware
 from notifications_api.infra.config import GlobalConfig
 from notifications_api.infra.postgres import (
     create_async_engine_from_config,
@@ -163,6 +165,7 @@ async def app_lifespan(app: Litestar) -> AsyncGenerator[None, None]:
 
 
 app = Litestar(
+    middleware=[PrometheusMiddleware],
     openapi_config=OpenAPIConfig(
         title="Notifications API",
         version="1.0.0",
@@ -173,6 +176,7 @@ app = Litestar(
         health,
         healthz,
         readyz,
+        prometheus_metrics,
         login,
         create_campaign,
         cancel_campaign,

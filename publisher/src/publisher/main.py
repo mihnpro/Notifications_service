@@ -9,6 +9,7 @@ import structlog
 from publisher.broker import Broker
 from publisher.config import PublisherConfig
 from publisher.db import create_engine
+from publisher.metrics import start_metrics_server
 from publisher.relay import Relay
 from publisher.repository import OutboxRepository
 from publisher.topology import declare_topology
@@ -31,6 +32,10 @@ async def _run() -> None:
     cfg = PublisherConfig()
     _configure_logging(cfg.log_level)
     log = structlog.get_logger("publisher")
+
+    metrics_addr = cfg.metrics_addr
+    start_metrics_server(metrics_addr)
+    log.info("metrics.server_started", addr=metrics_addr)
 
     engine = create_engine(cfg.pg_dsn, cfg.pg_pool_min_size, cfg.pg_pool_max_size)
     broker = Broker(cfg.rabbitmq_url, cfg.publish_timeout_sec)
