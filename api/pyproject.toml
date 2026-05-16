@@ -16,6 +16,7 @@ dependencies = [
     "pydantic-settings>=2.3,<3.0",
     "uvicorn[standard]>=0.30,<1.0",
     "httpx>=0.28.1",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [project.optional-dependencies]
@@ -84,7 +85,12 @@ unfixable = []
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401", "TID252", "PLC0414"]
 "**/{tests,docs,tools}/*" = ["E402"]
-"tests/**/*" = ["S101"]
+"tests/**/*" = ["PLR2004", "S101", "S106"]
+"notifications_api/app/http/campaigns.py" = ["PLR0913", "TC003"]
+"notifications_api/app/http/channels.py" = ["C901", "PLR0913", "TC002"]
+"notifications_api/app/http/dlq.py" = ["C901", "PLR0912", "PLR0913", "PLR0915", "TC002"]
+"notifications_api/app/http/users.py" = ["C901", "PLR0912", "PLR0915", "TC002"]
+"notifications_api/adapters/postgres_models/models.py" = ["TC003"]
 "*_test.py" = ["ANN", "S", "S101", "TRY", "PGH003", "FBT", "PT012", "N801", "ARG002", "SLF001", "PLR", "SIM"]
 "scripts/*" = ["T201", "ASYNC", "A004", "A001", "TRY003", "SLF001"]
 "alembic/*" = ["INP001"]

@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import cast
 
 from litestar.datastructures import State
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -9,7 +10,21 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from notifications_api.infra.config import PostgresConfig
+
+class PostgresConfig(BaseModel):
+    host: str = Field(default="localhost")
+    port: int = Field(default=5432)
+    username: str = Field(default="postgres")
+    password: str = Field(default="postgres")
+    database: str = Field(default="notifications")
+
+    should_log_sql: bool | None = Field(default=False)
+    pool_size: int = Field(default=10)
+    pool_max_overflow: int | None = Field(default=20)
+
+    @property
+    def url(self) -> str:
+        return f"postgresql+asyncpg://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 
 class AsyncSessionFactory(async_sessionmaker[AsyncSession]): ...
