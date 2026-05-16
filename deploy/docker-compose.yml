@@ -6,6 +6,8 @@ services:
     image: postgres:16-alpine
     container_name: notifications_postgres
     restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-notifications}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notifications}
@@ -197,23 +199,25 @@ services:
     networks:
       - notifications
 
-  # ── Recovery service (Rust) ───────────────────────────────────────────────────
+  # ── Recovery service (Python) ─────────────────────────────────────────────────
 
   recover:
     build:
       context: ../recover
       dockerfile: Dockerfile
     restart: unless-stopped
+    ports:
+      - "${RECOVER_PORT:-8080}:8080"
     environment:
-      APP__INSTANCE_ID: "recover-1"
-      APP__SERVER__BIND: "0.0.0.0:8080"
-      APP__DB__URL: "postgresql://${POSTGRES_USER:-notifications}:${POSTGRES_PASSWORD:-notifications}@postgres:5432/${POSTGRES_DB:-notifications}"
-      APP__DB__MAX_CONNECTIONS: "10"
-      APP__RMQ__URL: "amqp://notifications:notifications@rabbitmq:5672//notifications"
-      APP__RMQ__ENABLED: "false"
-      APP__REGIONS__IDS: '["default"]'
-      APP__TELEMETRY__LOG_FORMAT: "json"
-      APP__TELEMETRY__LOG_LEVEL: "info,sqlx=warn,lapin=warn"
+      RECOVER__INSTANCE_ID: "recover-1"
+      RECOVER__SERVER__BIND: "0.0.0.0:8080"
+      RECOVER__DB__URL: "postgresql+asyncpg://${POSTGRES_USER:-notifications}:${POSTGRES_PASSWORD:-notifications}@postgres:5432/${POSTGRES_DB:-notifications}"
+      RECOVER__DB__MAX_CONNECTIONS: "10"
+      RECOVER__RMQ__URL: "amqp://notifications:notifications@rabbitmq:5672/%2Fnotifications"
+      RECOVER__RMQ__ENABLED: "false"
+      RECOVER__REGIONS__IDS: '["default"]'
+      RECOVER__TELEMETRY__LOG_FORMAT: "json"
+      RECOVER__TELEMETRY__LOG_LEVEL: "INFO"
     depends_on:
       postgres:
         condition: service_healthy

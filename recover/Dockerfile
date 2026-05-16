@@ -1,34 +1,16 @@
-FROM rust:1.88-bookworm AS builder
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
-# Cache dependencies — copy manifests first
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir src \
-    && echo "fn main(){}" > src/main.rs \
-    && touch src/lib.rs \
-    && cargo build --release \
-    && rm -rf src
+COPY . /app
 
-COPY src ./src
-COPY config ./config
-
-# Rebuild only application code
-RUN touch src/lib.rs src/main.rs \
-    && cargo build --release --bin recover
-
-# ── Runtime ───────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libssl3 ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-COPY --from=builder /app/target/release/recover ./recover
-COPY --from=builder /app/config ./config
+RUN uv sync
 
 EXPOSE 8080
 
-ENTRYPOINT ["./recover", "--config", "config/default.toml", "serve"]
+ENTRYPOINT ["uv", "run", "recover", "serve"]
