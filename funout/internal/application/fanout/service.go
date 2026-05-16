@@ -85,6 +85,14 @@ func (s *Service) Execute(ctx context.Context, body []byte) error {
 	dur := time.Since(start).Seconds()
 
 	if pipelineErr != nil {
+		if errors.Is(pipelineErr, campaign.ErrCancelled) {
+			if err := s.runs.MarkCancelled(ctx, run.ID, s.workerID); err != nil && !errors.Is(err, campaign.ErrLockLost) {
+				log.Warn("could not mark run as cancelled", "error", err)
+			}
+			log.Info("fanout stopped: campaign cancellation requested")
+			return nil
+		}
+
 		log.Error("fanout pipeline failed", "error", pipelineErr)
 		metrics.RunsTotal.WithLabelValues("failed").Inc()
 		metrics.RunDuration.WithLabelValues("failed").Observe(dur)

@@ -5,7 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SMOKE_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 STATE_FILE="${SMOKE_STATE_FILE:-$SCRIPT_DIR/.smoke.env}"
 
-API_URL="${API_URL:-http://localhost:80}"
+API_URL="${API_URL:-}"
 MANAGER_ID="${MANAGER_ID:-11111111-1111-1111-1111-111111111111}"
 AUTH_TOKEN="${AUTH_TOKEN:-$MANAGER_ID}"
 SMOKE_SEQ=1
@@ -19,6 +19,8 @@ log() {
 
 fail() {
   printf '[smoke][FAIL] %s\n' "$*" >&2
+  printf '[smoke][FAIL] API_URL=%s\n' "$API_URL" >&2
+  printf '[smoke][FAIL] Hint: point API_URL to Notifications API (default deploy: http://localhost:8000, gateway profile: http://localhost:8080)\n' >&2
   if [ -n "${LAST_BODY:-}" ] && [ -f "$LAST_BODY" ]; then
     printf '[smoke][FAIL] response body:\n' >&2
     cat "$LAST_BODY" >&2
@@ -26,6 +28,27 @@ fail() {
   fi
   exit 1
 }
+
+detect_api_url() {
+  if [ -n "$API_URL" ]; then
+    return
+  fi
+
+  for base in http://localhost:8000 http://localhost:8080 http://localhost:80; do
+    status=$(curl -sS -o /dev/null -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -X POST "${base}/auth/login" \
+      --data '{}' || true)
+    if [ "$status" = "400" ] || [ "$status" = "401" ] || [ "$status" = "422" ] || [ "$status" = "200" ]; then
+      API_URL="$base"
+      return
+    fi
+  done
+
+  API_URL="http://localhost:8000"
+}
+
+detect_api_url
 
 load_state() {
   if [ -f "$STATE_FILE" ]; then
