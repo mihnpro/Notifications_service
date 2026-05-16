@@ -27,4 +27,7 @@ type Repository interface {
 	//   5. INSERT outbox_events   (only when retry_scheduled)
 	// Returns ErrLeaseExpired if the CAS fails (0 rows updated).
 	Finalize(ctx context.Context, params FinalizeParams) error
+
+	// IsCampaignCancellationRequested reports whether the campaign is cancelling/cancelled.
+	IsCampaignCancellationRequested(ctx context.Context, campaignID uuid.UUID) (bool, error)
 }

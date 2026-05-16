@@ -204,6 +204,22 @@ func (r *TaskRepository) Finalize(ctx context.Context, params task.FinalizeParam
 	return tx.Commit(ctx)
 }
 
+func (r *TaskRepository) IsCampaignCancellationRequested(ctx context.Context, campaignID uuid.UUID) (bool, error) {
+	const q = `
+		SELECT status
+		FROM campaigns
+		WHERE id = $1`
+
+	var status string
+	if err := r.pool.QueryRow(ctx, q, campaignID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, task.ErrNotFound
+		}
+		return false, fmt.Errorf("campaign status lookup: %w", err)
+	}
+	return status == "cancelling" || status == "cancelled", nil
+}
+
 func finalizeTask(ctx context.Context, tx pgx.Tx, p task.FinalizeParams) error {
 	var availableAt any
 	if p.RetryAvailableAt != nil {
@@ -217,7 +233,7 @@ func finalizeTask(ctx context.Context, tx pgx.Tx, p task.FinalizeParams) error {
 		       lease_until  = NULL,
 		       lease_owner  = NULL,
 		       available_at = COALESCE($2, available_at),
-		       completed_at = CASE WHEN $1 IN ('succeeded','failed','dead_lettered') THEN NOW() ELSE NULL END
+		       completed_at = CASE WHEN $1 IN ('succeeded','failed','dead_lettered','cancelled') THEN NOW() ELSE NULL END
 		WHERE  id          = $3
 		  AND  lease_token = $4`
 
@@ -280,6 +296,8 @@ func statsColumn(s task.Status) string {
 		return "retry_scheduled"
 	case task.StatusDeadLettered:
 		return "dead_lettered"
+	case task.StatusCancelled:
+		return "cancelled"
 	default:
 		return ""
 	}

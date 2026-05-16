@@ -18,7 +18,7 @@ from notifications_api.infra.config import GlobalConfig
 DEFAULT_API_URL = "http://localhost:8000"
 DEFAULT_TOTAL_USERS = 50_000
 DEFAULT_BATCH_SIZE = 1_000
-DEFAULT_CHANNELS = ("email", "sms", "push", "telegram")
+DEFAULT_CHANNELS = ("email", "sms")
 DEFAULT_IDEMPOTENCY_PREFIX = "seed-users"
 ALLOWED_CHANNELS = frozenset(DEFAULT_CHANNELS)
 HTTP_SERVER_ERROR_MIN = 500
@@ -29,8 +29,6 @@ MAX_WORKERS = 32
 CHANNEL_DEFINITIONS: dict[str, tuple[str, str]] = {
     "email": ("Email", "email"),
     "sms": ("SMS", "sms"),
-    "push": ("Push", "push"),
-    "telegram": ("Telegram", "messenger"),
 }
 
 
@@ -109,7 +107,7 @@ def parse_args() -> argparse.Namespace:
         "--channels",
         type=str,
         default=",".join(DEFAULT_CHANNELS),
-        help="Comma-separated channels to generate: email,sms,push,telegram",
+        help="Comma-separated channels to generate: email,sms",
     )
     parser.add_argument("--api-url", type=str, default=DEFAULT_API_URL, help="Base API URL, e.g. http://localhost:8000")
     parser.add_argument(
@@ -341,8 +339,7 @@ def login_and_get_token(
         raise RuntimeError(message) from exc
     except httpx.HTTPStatusError as exc:
         message = (
-            f"login failed with HTTP {exc.response.status_code} {exc.response.reason_phrase}; "
-            f"body: {exc.response.text}"
+            f"login failed with HTTP {exc.response.status_code} {exc.response.reason_phrase}; body: {exc.response.text}"
         )
         raise RuntimeError(message) from exc
     except httpx.TransportError as exc:

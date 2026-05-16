@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrAlreadyLocked = errors.New("campaign_region_run is already locked by another worker")
+	ErrCancelled     = errors.New("campaign cancellation requested")
 	ErrLockLost      = errors.New("fanout lock was lost (expired or stolen by recovery)")
 	ErrNotFound      = errors.New("campaign not found")
 )
