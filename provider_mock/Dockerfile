@@ -13,9 +13,8 @@ RUN apt-get update \
 
 COPY . /app
 
-RUN uv sync --extra dev
-RUN chmod +x /app/scripts/entrypoint.sh
+RUN uv sync
 
 EXPOSE 8000
 
-ENTRYPOINT []
+ENTRYPOINT ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

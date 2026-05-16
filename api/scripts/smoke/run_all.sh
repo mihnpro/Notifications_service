@@ -13,5 +13,6 @@ log "Running full smoke suite against ${API_URL}"
 "$SCRIPT_DIR/03_campaigns.sh"
 "$SCRIPT_DIR/04_dlq.sh"
 "$SCRIPT_DIR/05_users.sh"
+"$SCRIPT_DIR/06_e2e_flow.sh"
 
 log "All smoke scripts passed"

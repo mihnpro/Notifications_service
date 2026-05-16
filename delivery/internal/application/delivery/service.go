@@ -132,15 +132,14 @@ func (s *Service) buildFinalizeParams(
 	if pErr.Type == provider.ErrorTypePermanent || !t.CanRetry() {
 		// ── Dead letter ───────────────────────────────────────────────────────
 		params.NewTaskStatus = task.StatusDeadLettered
+		params.ChannelCode = t.ChannelCode
 		return params
 	}
 
 	// ── Retry ─────────────────────────────────────────────────────────────────
 	retryAt := time.Now().Add(retryDelay(t.AttemptCount))
-	rKey := retryRoutingKey(t.RegionID, t.QueueGroup, t.AttemptCount)
 
 	params.NewTaskStatus = task.StatusRetryScheduled
 	params.RetryAvailableAt = &retryAt
-	params.RetryRoutingKey = rKey
 	return params
 }

@@ -201,18 +201,11 @@ func (r *TaskRepository) Finalize(ctx context.Context, params task.FinalizeParam
 		}
 	}
 
-	// 5. Insert outbox event for retry signal.
-	if params.NewTaskStatus == task.StatusRetryScheduled {
-		if err := insertRetryOutbox(ctx, tx, params); err != nil {
-			return fmt.Errorf("insert retry outbox: %w", err)
-		}
-	}
-
 	return tx.Commit(ctx)
 }
 
 func finalizeTask(ctx context.Context, tx pgx.Tx, p task.FinalizeParams) error {
-	var availableAt interface{}
+	var availableAt any
 	if p.RetryAvailableAt != nil {
 		availableAt = *p.RetryAvailableAt
 	}
@@ -298,32 +291,6 @@ func insertDLQItem(ctx context.Context, tx pgx.Tx, p task.FinalizeParams) error 
 		VALUES ($1, $2, $3, 'max_attempts_exceeded', $4, $5, 'open', NOW())
 		ON CONFLICT (task_id) WHERE status = 'open' DO NOTHING`
 
-	// channel_code comes from attempt; re-use error fields.
-	_, err := tx.Exec(ctx, q, p.TaskID, p.CampaignID, "", p.ErrorCode, p.ErrorMessage)
-	return err
-}
-
-func insertRetryOutbox(ctx context.Context, tx pgx.Tx, p task.FinalizeParams) error {
-	dedupeKey := fmt.Sprintf("task_retry_scheduled:%s:%d", p.TaskID, time.Now().UnixNano())
-	payload := fmt.Sprintf(
-		`{"event_type":"TaskRetryScheduled","task_id":%q,"campaign_id":%q}`,
-		p.TaskID, p.CampaignID,
-	)
-
-	const q = `
-		INSERT INTO outbox_events
-		    (region_id, event_type, payload, exchange, routing_key,
-		     status, dedupe_key, created_at, next_attempt_at)
-		VALUES
-		    ('default', 'TaskRetryScheduled', $1, 'notification.retry', $2,
-		     'pending', $3, NOW(), $4)
-		ON CONFLICT (region_id, dedupe_key) DO NOTHING`
-
-	_, err := tx.Exec(ctx, q,
-		[]byte(payload),
-		p.RetryRoutingKey,
-		dedupeKey,
-		p.RetryAvailableAt,
-	)
+	_, err := tx.Exec(ctx, q, p.TaskID, p.CampaignID, p.ChannelCode, p.ErrorCode, p.ErrorMessage)
 	return err
 }

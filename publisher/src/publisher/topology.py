@@ -2,9 +2,24 @@ import aio_pika
 from aio_pika.abc import AbstractRobustChannel, AbstractRobustConnection
 
 MAIN_EXCHANGE = "notification.direct"
-MAIN_QUEUE = "notification.tasks"
 DLX_EXCHANGE = "notification.dlx"
 DLQ_QUEUE = "notification.tasks.dead"
+DLQ_ROUTING_KEY = "notification.tasks.dead"
+
+_REGIONS = ["default"]
+_PRIORITIES = ["high", "normal", "low"]
+_QUEUE_GROUPS = ["email", "sms"]
+
+
+def _all_queues() -> list[str]:
+    queues = []
+    for region in _REGIONS:
+        for priority in _PRIORITIES:
+            queues.append(f"notification.{region}.fanout.{priority}")
+        for group in _QUEUE_GROUPS:
+            for priority in _PRIORITIES:
+                queues.append(f"notification.{region}.{group}.{priority}")
+    return queues
 
 
 async def declare_topology(connection: AbstractRobustConnection) -> None:
@@ -22,16 +37,17 @@ async def declare_topology(connection: AbstractRobustConnection) -> None:
         )
 
         dlq = await channel.declare_queue(DLQ_QUEUE, durable=True)
-        await dlq.bind(dlx_exchange, routing_key=MAIN_QUEUE)
+        await dlq.bind(dlx_exchange, routing_key=DLQ_ROUTING_KEY)
 
-        main_queue = await channel.declare_queue(
-            MAIN_QUEUE,
-            durable=True,
-            arguments={
-                "x-dead-letter-exchange": DLX_EXCHANGE,
-                "x-dead-letter-routing-key": MAIN_QUEUE,
-            },
-        )
-        await main_queue.bind(main_exchange, routing_key=MAIN_QUEUE)
+        for queue_name in _all_queues():
+            q = await channel.declare_queue(
+                queue_name,
+                durable=True,
+                arguments={
+                    "x-dead-letter-exchange": DLX_EXCHANGE,
+                    "x-dead-letter-routing-key": DLQ_ROUTING_KEY,
+                },
+            )
+            await q.bind(main_exchange, routing_key=queue_name)
     finally:
         await channel.close()

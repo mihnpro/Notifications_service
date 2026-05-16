@@ -44,6 +44,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	queues := cfg.FanoutQueues()
+
 	// Wire up all layers.
 	svc := appfanout.NewService(
 		postgres.NewRunRepository(pool),
@@ -58,12 +60,14 @@ func main() {
 	worker := rabbitmq.NewWorker(
 		cfg.RabbitMQURL,
 		cfg.RabbitMQVhost,
+		queues,
 		cfg.Concurrency,
 		svc,
 	)
 
 	slog.Info("fanout worker starting",
 		"worker_id", cfg.WorkerID,
+		"queues", queues,
 		"batch_size", cfg.BatchSize,
 		"concurrency", cfg.Concurrency,
 	)

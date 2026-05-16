@@ -1,4 +1,7 @@
 services:
+
+  # ── Infrastructure ────────────────────────────────────────────────────────────
+
   postgres:
     image: postgres:16-alpine
     container_name: notifications_postgres
@@ -13,11 +16,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-notifications} -d ${POSTGRES_DB:-notifications}",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notifications} -d ${POSTGRES_DB:-notifications}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -48,6 +47,50 @@ services:
     networks:
       - notifications
 
+  # ── API ───────────────────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "8000"
+      APP_DEBUG: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-notifications}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notifications}
+      POSTGRES_DB: ${POSTGRES_DB:-notifications}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-insecure-jwt-secret-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - notifications
+
+  nginx:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - notifications
+
+  # ── Publisher (outbox relay) ───────────────────────────────────────────────────
+
   publisher:
     build:
       context: ../publisher
@@ -70,14 +113,86 @@ services:
       replicas: 2
     networks:
       - notifications
-  nginx:
-    image: nginx:1.28-alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+  # ── Fanout worker ─────────────────────────────────────────────────────────────
+
+  funout:
+    build:
+      context: ../funout
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      RABBITMQ_URL: amqp://notifications:notifications@rabbitmq:5672
+      RABBITMQ_VHOST: /notifications
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-notifications}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notifications}
+      POSTGRES_DB: ${POSTGRES_DB:-notifications}
+      REGION: default
+      FANOUT_BATCH_SIZE: "1000"
+      FANOUT_CONCURRENCY: "4"
     depends_on:
-      - api
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+    networks:
+      - notifications
+
+  # ── Delivery worker ───────────────────────────────────────────────────────────
+
+  delivery:
+    build:
+      context: ../delivery
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      RABBITMQ_URL: amqp://notifications:notifications@rabbitmq:5672
+      RABBITMQ_VHOST: /notifications
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-notifications}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notifications}
+      POSTGRES_DB: ${POSTGRES_DB:-notifications}
+      REGION: default
+      QUEUE_GROUPS: email,sms
+      DELIVERY_CONCURRENCY: "16"
+      PROVIDER_URL: http://provider_mock:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      provider_mock:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+    networks:
+      - notifications
+
+  # ── Provider mock ─────────────────────────────────────────────────────────────
+
+  provider_mock:
+    build:
+      context: ../provider_mock
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      SUCCESS_RATE: "${PROVIDER_SUCCESS_RATE:-0.7}"
+      MIN_DELAY: "${PROVIDER_MIN_DELAY:-0.05}"
+      MAX_DELAY: "${PROVIDER_MAX_DELAY:-0.5}"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - notifications
 
 volumes:
   postgres_data:

@@ -51,10 +51,12 @@ class UsersBulkRequest(ApiModel):
     items: list[UserBulkItem]
 
 
-def _validate_address(channel_code: str, address: str) -> bool:
-    if channel_code == "email":
+def _validate_address(channel: ChannelORM, address: str) -> bool:
+    if channel.adapter_name == "email":
         return EMAIL_RE.match(address) is not None
-    return PHONE_RE.match(address) is not None
+    if channel.adapter_name == "sms":
+        return PHONE_RE.match(address) is not None
+    return True
 
 
 @post("/users/bulk")
@@ -145,7 +147,8 @@ async def users_bulk_import(
                         "channel": channel_payload.channel,
                     })
                     continue
-                if not _validate_address(channel_payload.channel, channel_payload.address):
+                channel = channels_map[channel_payload.channel]
+                if not _validate_address(channel, channel_payload.address):
                     errors.append({
                         "index": index,
                         "externalId": item.external_id,
@@ -155,8 +158,6 @@ async def users_bulk_import(
                         "address": channel_payload.address,
                     })
                     continue
-
-                channel = channels_map[channel_payload.channel]
                 existing_user_channel = (
                     await session.execute(
                         sa.select(UserChannelORM).where(

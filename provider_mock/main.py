@@ -3,36 +3,38 @@ import os
 import random
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from pydantic import BaseModel
 
 app = FastAPI()
 
 SUCCESS_RATE = float(os.getenv("SUCCESS_RATE", "0.7"))
-MIN_DELAY = float(os.getenv("MIN_DELAY", "2"))
-MAX_DELAY = float(os.getenv("MAX_DELAY", "300"))
+MIN_DELAY = float(os.getenv("MIN_DELAY", "0.05"))
+MAX_DELAY = float(os.getenv("MAX_DELAY", "0.5"))
 
 
 class SendRequest(BaseModel):
     task_id: str
     recipient: str
     channel: str
-    message: str
+    message: Any  # JSON object sent by the delivery worker
+    idempotency_key: str | None = None
 
 
 class SendResponse(BaseModel):
-    status: str
     provider_request_id: str | None = None
+    error_type: str | None = None   # "transient" | "permanent" — read by HTTPAdapter
     error_code: str | None = None
-
+    message: str | None = None
     request_received_at: str
     response_sent_at: str
 
 
 @app.post("/send", response_model=SendResponse)
-async def send_notification(req: SendRequest):
+async def send_notification(req: SendRequest, response: Response):
     request_received_at = datetime.now(timezone.utc)
 
     print(
@@ -43,42 +45,36 @@ async def send_notification(req: SendRequest):
         f"received_at={request_received_at.isoformat()}"
     )
 
-    # случайная задержка
     delay = random.uniform(MIN_DELAY, MAX_DELAY)
     await asyncio.sleep(delay)
 
     response_sent_at = datetime.now(timezone.utc)
 
-    # случайный исход
     if random.random() < SUCCESS_RATE:
-        response = SendResponse(
-            status="ok",
+        print(f"[RESPONSE SENT] task_id={req.task_id} status=ok")
+        return SendResponse(
             provider_request_id=str(uuid.uuid4()),
             request_received_at=request_received_at.isoformat(),
             response_sent_at=response_sent_at.isoformat(),
         )
-    else:
-        error_code = (
-            "TRANSIENT_FAILURE" if random.random() < 0.5 else "PERMANENT_FAILURE"
-        )
 
-        response = SendResponse(
-            status="error",
-            error_code=error_code,
-            request_received_at=request_received_at.isoformat(),
-            response_sent_at=response_sent_at.isoformat(),
-        )
+    is_transient = random.random() < 0.5
+    error_type = "transient" if is_transient else "permanent"
+    error_code = "TRANSIENT_FAILURE" if is_transient else "PERMANENT_FAILURE"
+    # 422 → transient, 400 → permanent — matches HTTPAdapter error routing.
+    response.status_code = 422 if is_transient else 400
 
     print(
-        f"[RESPONSE SENT] "
-        f"task_id={req.task_id}, "
-        f"status={response.status}, "
-        f"error_code={response.error_code}, "
-        f"received_at={response.request_received_at}, "
-        f"sent_at={response.response_sent_at}"
+        f"[RESPONSE SENT] task_id={req.task_id} "
+        f"error_type={error_type} error_code={error_code}"
     )
-
-    return response
+    return SendResponse(
+        error_type=error_type,
+        error_code=error_code,
+        message=f"simulated {error_type} failure",
+        request_received_at=request_received_at.isoformat(),
+        response_sent_at=response_sent_at.isoformat(),
+    )
 
 
 @app.get("/health")

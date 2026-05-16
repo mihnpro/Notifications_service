@@ -18,8 +18,8 @@ type Campaign struct {
 // RecipientSelector is a value object describing who receives the campaign.
 type RecipientSelector struct {
 	Type        string      `json:"type"` // "all" | "user_ids" | "external_ids"
-	UserIDs     []uuid.UUID `json:"user_ids,omitempty"`
-	ExternalIDs []string    `json:"external_ids,omitempty"`
+	UserIDs     []uuid.UUID `json:"userIds,omitempty"`
+	ExternalIDs []string    `json:"externalIds,omitempty"`
 }
 
 func (s RecipientSelector) IsAll() bool {

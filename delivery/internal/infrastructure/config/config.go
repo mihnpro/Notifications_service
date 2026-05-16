@@ -20,7 +20,7 @@ type Config struct {
 
 // DeliveryQueues derives the RabbitMQ queue names from region + queue_groups.
 func (c *Config) DeliveryQueues() []string {
-	priorities := []string{"high", "normal"}
+	priorities := []string{"high", "normal", "low"}
 	queues := make([]string, 0, len(c.QueueGroups)*len(priorities))
 	for _, g := range c.QueueGroups {
 		for _, p := range priorities {
@@ -37,7 +37,7 @@ func Load() (*Config, error) {
 		RabbitMQVhost: getEnv("RABBITMQ_VHOST", "/notifications"),
 		Concurrency:   getEnvInt("DELIVERY_CONCURRENCY", 16),
 		Region:        getEnv("REGION", "default"),
-		QueueGroups:   strings.Split(getEnv("QUEUE_GROUPS", "default,messenger"), ","),
+		QueueGroups:   strings.Split(getEnv("QUEUE_GROUPS", "email,sms"), ","),
 		ProviderURL:   getEnv("PROVIDER_URL", ""),
 	}
 

@@ -5,7 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SMOKE_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 STATE_FILE="${SMOKE_STATE_FILE:-$SCRIPT_DIR/.smoke.env}"
 
-API_URL="${API_URL:-http://localhost:8000}"
+API_URL="${API_URL:-http://localhost:80}"
 MANAGER_ID="${MANAGER_ID:-11111111-1111-1111-1111-111111111111}"
 AUTH_TOKEN="${AUTH_TOKEN:-$MANAGER_ID}"
 SMOKE_SEQ=1
