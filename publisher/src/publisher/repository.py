@@ -81,10 +81,18 @@ class OutboxRepository:
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
-    async def recover_stale(self) -> int:
+    async def recover_stale_own(self) -> int:
+        """Reset rows this worker locked before crashing.
+
+        Why: rows locked by *other* workers belong to the recover service —
+        racing it would split-brain `attempt_count` and `last_error`. We only
+        rescue our own orphans (worker_id matches) so a restart of this pod
+        unsticks its own in-flight batch immediately.
+        """
         stmt = (
             sa.update(outbox_events)
             .where(outbox_events.c.status == "publishing")
+            .where(outbox_events.c.locked_by == self._worker_id)
             .where(outbox_events.c.locked_until < sa.func.now())
             .values(status="pending", locked_by=None, locked_until=None)
         )

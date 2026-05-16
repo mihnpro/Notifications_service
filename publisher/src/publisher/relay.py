@@ -5,7 +5,7 @@ import random
 
 import structlog
 
-from publisher.broker import Broker
+from publisher.broker import Broker, UnroutableMessageError
 from publisher.config import PublisherConfig
 from publisher.domain.outbox import OutboxRow
 from publisher.repository import OutboxRepository
@@ -35,9 +35,9 @@ class Relay:
             try:
                 tick += 1
                 if tick % self._cfg.recover_every_n_ticks == 0:
-                    recovered = await self._repo.recover_stale()
+                    recovered = await self._repo.recover_stale_own()
                     if recovered:
-                        log.info("relay.recovered_stale", count=recovered)
+                        log.info("relay.recovered_stale_own", count=recovered)
 
                 rows = await self._repo.claim_batch(self._cfg.batch_size)
                 if not rows:
@@ -56,6 +56,15 @@ class Relay:
             try:
                 await self._broker.publish(row)
                 published_ids.append(row.id)
+            except UnroutableMessageError as exc:
+                err = f"unroutable: {exc}"
+                if row.attempt_count >= self._cfg.max_attempts:
+                    log.error("relay.permanent_unroutable", id=str(row.id), attempts=row.attempt_count, error=err)
+                    await self._repo.mark_failed(row.id, err)
+                else:
+                    backoff = _backoff_seconds(row.attempt_count)
+                    log.warning("relay.unroutable_retry", id=str(row.id), attempts=row.attempt_count, backoff=backoff, error=err)
+                    await self._repo.mark_retry(row.id, err, backoff)
             except Exception as exc:
                 err = f"{type(exc).__name__}: {exc}"
                 if row.attempt_count >= self._cfg.max_attempts:
