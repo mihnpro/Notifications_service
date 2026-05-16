@@ -1,5 +1,4 @@
 services:
-
   postgres:
     image: postgres:16-alpine
     container_name: notifications_postgres
@@ -14,7 +13,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notifications} -d ${POSTGRES_DB:-notifications}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-notifications} -d ${POSTGRES_DB:-notifications}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -67,6 +70,14 @@ services:
       replicas: 2
     networks:
       - notifications
+  nginx:
+    image: nginx:1.28-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

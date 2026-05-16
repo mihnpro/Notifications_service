@@ -21,7 +21,7 @@ services:
       dockerfile: Dockerfile
     environment:
       APP_HOST: 0.0.0.0
-      APP_PORT: 8000
+      APP_PORT: 8080
       APP_DEBUG: "false"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
