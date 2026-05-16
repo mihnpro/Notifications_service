@@ -1,0 +1,264 @@
+{
+  "uid": "notifications-postgres",
+  "title": "Notifications — PostgreSQL",
+  "tags": ["notifications", "postgres"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Connection Pool",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+    {
+      "id": 2,
+      "title": "Active Connections",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 1, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "pg_stat_activity_count{datname=\"notifications\",state=\"active\"}",
+          "legendFormat": "active"
+        },
+        {
+          "expr": "pg_stat_activity_count{datname=\"notifications\",state=\"idle\"}",
+          "legendFormat": "idle"
+        },
+        {
+          "expr": "pg_stat_activity_count{datname=\"notifications\",state=\"idle in transaction\"}",
+          "legendFormat": "idle in txn"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Max Connections Used %",
+      "type": "gauge",
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(pg_stat_activity_count{datname=\"notifications\"}) / pg_settings_max_connections * 100",
+        "legendFormat": "%"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Locks (awaiting)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 1, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "pg_locks_count{datname=\"notifications\",mode=~\".*Lock\",granted=\"false\"}",
+        "legendFormat": "{{mode}} waiting"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Deadlocks / s",
+      "type": "timeseries",
+      "gridPos": { "x": 18, "y": 1, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "rate(pg_stat_database_deadlocks{datname=\"notifications\"}[1m])",
+        "legendFormat": "deadlocks/s"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Throughput",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 1 }
+    },
+    {
+      "id": 11,
+      "title": "Transactions / s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 7, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_xact_commit{datname=\"notifications\"}[1m])",
+          "legendFormat": "commits/s"
+        },
+        {
+          "expr": "rate(pg_stat_database_xact_rollback{datname=\"notifications\"}[1m])",
+          "legendFormat": "rollbacks/s"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Rows Read / Written per s",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 7, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_tup_fetched{datname=\"notifications\"}[1m])",
+          "legendFormat": "fetched/s"
+        },
+        {
+          "expr": "rate(pg_stat_database_tup_inserted{datname=\"notifications\"}[1m])",
+          "legendFormat": "inserted/s"
+        },
+        {
+          "expr": "rate(pg_stat_database_tup_updated{datname=\"notifications\"}[1m])",
+          "legendFormat": "updated/s"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Cache Hit Ratio",
+      "type": "gauge",
+      "gridPos": { "x": 16, "y": 7, "w": 4, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "pg_stat_database_blks_hit{datname=\"notifications\"} / (pg_stat_database_blks_hit{datname=\"notifications\"} + pg_stat_database_blks_read{datname=\"notifications\"} + 1) * 100",
+        "legendFormat": "hit %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 99 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Temp Files / s",
+      "type": "timeseries",
+      "gridPos": { "x": 20, "y": 7, "w": 4, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "rate(pg_stat_database_temp_files{datname=\"notifications\"}[5m])",
+        "legendFormat": "temp files/s"
+      }]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Table Stats — Key Tables",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 1 }
+    },
+    {
+      "id": 21,
+      "title": "Sequential Scans / s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "topk(5, rate(pg_stat_user_tables_seq_scan{datname=\"notifications\"}[1m]))",
+        "legendFormat": "{{relname}}"
+      }]
+    },
+    {
+      "id": 22,
+      "title": "Dead Tuples (top 5 tables)",
+      "type": "bargauge",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "topk(5, pg_stat_user_tables_n_dead_tup{datname=\"notifications\"})",
+        "legendFormat": "{{relname}}"
+      }],
+      "options": { "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Replication & WAL",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 1 }
+    },
+    {
+      "id": 31,
+      "title": "WAL Bytes Generated / s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "rate(pg_stat_bgwriter_buffers_alloc[1m]) * 8192",
+        "legendFormat": "WAL alloc bytes/s"
+      }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } }
+    },
+    {
+      "id": 32,
+      "title": "Checkpoint Duration",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_bgwriter_checkpoint_write_time[5m])",
+          "legendFormat": "write ms/s"
+        },
+        {
+          "expr": "rate(pg_stat_bgwriter_checkpoint_sync_time[5m])",
+          "legendFormat": "sync ms/s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Logs",
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 1 }
+    },
+    {
+      "id": 41,
+      "title": "PostgreSQL Exporter Logs",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 25, "w": 24, "h": 6 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "expr": "{compose_service=\"postgres_exporter\"}",
+        "legendFormat": ""
+      }],
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true }
+    }
+  ]
+}

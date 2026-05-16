@@ -1,0 +1,378 @@
+{
+  "uid": "notifications-overview",
+  "title": "Notifications — Overview",
+  "tags": ["notifications"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(up, job)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Health",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+    {
+      "id": 2,
+      "title": "Services Up",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 1, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(up{job=~\"api|publisher|funout|delivery|provider_mock|recover\"})",
+        "legendFormat": "up"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 4 },
+              { "color": "green", "value": 6 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "API — Request Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 1, "w": 9, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(api_http_requests_total[1m])) by (status_code)",
+        "legendFormat": "HTTP {{status_code}}"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "API — P95 Latency",
+      "type": "stat",
+      "gridPos": { "x": 15, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(api_http_request_duration_seconds_bucket[5m])) by (le))",
+        "legendFormat": "p95"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Campaigns Created / Cancelled",
+      "type": "stat",
+      "gridPos": { "x": 19, "y": 1, "w": 5, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "increase(api_campaigns_created_total[1h])", "legendFormat": "Created (1h)" },
+        { "expr": "increase(api_campaigns_cancelled_total[1h])", "legendFormat": "Cancelled (1h)" }
+      ]
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Publisher (Outbox Relay)",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 }
+    },
+    {
+      "id": 11,
+      "title": "Published / s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(publisher_relay_published_total[1m]))", "legendFormat": "published/s" },
+        { "expr": "sum(rate(publisher_relay_failed_total[1m]))", "legendFormat": "failed/s" },
+        { "expr": "sum(rate(publisher_relay_retried_total[1m]))", "legendFormat": "retried/s" }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Batch Size (p50 / p95)",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 6, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(publisher_relay_batch_size_bucket[2m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(publisher_relay_batch_size_bucket[2m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Relay Batch Errors",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 6, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(publisher_relay_batches_total{outcome=\"error\"}[1m]))",
+        "legendFormat": "errors/s"
+      }]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Fanout Worker",
+      "gridPos": { "x": 0, "y": 11, "w": 24, "h": 1 }
+    },
+    {
+      "id": 21,
+      "title": "Fanout Runs / s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(fanout_runs_total[1m])) by (outcome)",
+        "legendFormat": "{{outcome}}"
+      }]
+    },
+    {
+      "id": 22,
+      "title": "Tasks Inserted / s",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 12, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(fanout_tasks_inserted_total[1m]))",
+        "legendFormat": "tasks/s"
+      }]
+    },
+    {
+      "id": 23,
+      "title": "Fanout Run Duration P95",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 12, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(fanout_run_duration_seconds_bucket[5m])) by (le, outcome))",
+        "legendFormat": "p95 {{outcome}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Delivery Worker",
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 1 }
+    },
+    {
+      "id": 31,
+      "title": "Tasks Finalized / s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 18, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(delivery_tasks_finalized_total[1m])) by (outcome)",
+        "legendFormat": "{{outcome}}"
+      }]
+    },
+    {
+      "id": 32,
+      "title": "Provider Call Duration P50/P95",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 18, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(delivery_provider_call_duration_seconds_bucket[5m])) by (le, channel))",
+          "legendFormat": "p50 {{channel}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(delivery_provider_call_duration_seconds_bucket[5m])) by (le, channel))",
+          "legendFormat": "p95 {{channel}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 33,
+      "title": "Provider Calls by Outcome",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 18, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(delivery_provider_calls_total[1m])) by (outcome)",
+        "legendFormat": "{{outcome}}"
+      }]
+    },
+    {
+      "id": 34,
+      "title": "Dead-Lettered Tasks (rate)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 23, "w": 12, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(delivery_tasks_finalized_total{outcome=\"dead_lettered\"}[5m]))",
+        "legendFormat": "dead_lettered/s"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 35,
+      "title": "RabbitMQ Messages (nack rate)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 23, "w": 12, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(delivery_messages_total{outcome=\"nack\"}[1m]))",
+          "legendFormat": "delivery nack/s"
+        },
+        {
+          "expr": "sum(rate(fanout_messages_total{outcome=\"nack\"}[1m]))",
+          "legendFormat": "fanout nack/s"
+        }
+      ]
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Provider Mock",
+      "gridPos": { "x": 0, "y": 27, "w": 24, "h": 1 }
+    },
+    {
+      "id": 41,
+      "title": "Provider Requests by Outcome",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(provider_mock_requests_total[1m])) by (outcome)",
+        "legendFormat": "{{outcome}}"
+      }]
+    },
+    {
+      "id": 42,
+      "title": "Provider Request Latency P95",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(provider_mock_request_duration_seconds_bucket[5m])) by (le, channel))",
+        "legendFormat": "p95 {{channel}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Recovery Service",
+      "gridPos": { "x": 0, "y": 33, "w": 24, "h": 1 }
+    },
+    {
+      "id": 51,
+      "title": "Recovery Jobs — Rows Processed / s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 34, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(recover_job_rows_total[1m])) by (job)",
+        "legendFormat": "{{job}}"
+      }]
+    },
+    {
+      "id": 52,
+      "title": "Recovery Jobs — Tick Duration P95",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 34, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(recover_job_tick_seconds_bucket[5m])) by (le, job))",
+        "legendFormat": "p95 {{job}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+
+    {
+      "id": 60,
+      "type": "row",
+      "title": "Logs",
+      "gridPos": { "x": 0, "y": 39, "w": 24, "h": 1 }
+    },
+    {
+      "id": 61,
+      "title": "Error Logs — All Services",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 40, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "expr": "{compose_project=\"deploy\"} |= `` | json | level=~\"error|ERROR|critical|CRITICAL\"",
+        "legendFormat": ""
+      }],
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    },
+    {
+      "id": 62,
+      "title": "Logs — Filter by Service",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 48, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "expr": "{compose_service=~\"$job\"} | json",
+        "legendFormat": ""
+      }],
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    }
+  ]
+}

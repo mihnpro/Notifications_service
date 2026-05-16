@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 
 	appfanout "github.com/notifications/funout/internal/application/fanout"
 	"github.com/notifications/funout/internal/infrastructure/config"
+	"github.com/notifications/funout/internal/infrastructure/metrics"
 	"github.com/notifications/funout/internal/infrastructure/postgres"
 	"github.com/notifications/funout/internal/infrastructure/rabbitmq"
 )
@@ -64,6 +66,19 @@ func main() {
 		cfg.Concurrency,
 		svc,
 	)
+
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = ":9092"
+	}
+	metricsSrv := &http.Server{Addr: metricsAddr, Handler: metrics.Handler()}
+	go func() {
+		slog.Info("metrics server listening", "addr", metricsAddr)
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("metrics server error", "error", err)
+		}
+	}()
+	defer metricsSrv.Close()
 
 	slog.Info("fanout worker starting",
 		"worker_id", cfg.WorkerID,

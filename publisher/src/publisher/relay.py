@@ -8,6 +8,14 @@ import structlog
 from publisher.broker import Broker
 from publisher.config import PublisherConfig
 from publisher.domain.outbox import OutboxRow
+from publisher.metrics import (
+    RELAY_BATCH_SIZE,
+    RELAY_BATCHES,
+    RELAY_FAILED,
+    RELAY_PUBLISHED,
+    RELAY_RECOVERED,
+    RELAY_RETRIED,
+)
 from publisher.repository import OutboxRepository
 
 log = structlog.get_logger(__name__)
@@ -38,15 +46,19 @@ class Relay:
                     recovered = await self._repo.recover_stale()
                     if recovered:
                         log.info("relay.recovered_stale", count=recovered)
+                        RELAY_RECOVERED.inc(recovered)
 
                 rows = await self._repo.claim_batch(self._cfg.batch_size)
                 if not rows:
                     await self._sleep(self._cfg.poll_interval_sec)
                     continue
 
+                RELAY_BATCH_SIZE.observe(len(rows))
                 await self._process_batch(rows)
+                RELAY_BATCHES.labels(outcome="ok").inc()
             except Exception:
                 log.exception("relay.loop_error")
+                RELAY_BATCHES.labels(outcome="error").inc()
                 await self._sleep(self._cfg.poll_interval_sec)
         log.info("relay.stopped")
 
@@ -61,13 +73,16 @@ class Relay:
                 if row.attempt_count >= self._cfg.max_attempts:
                     log.error("relay.permanent_fail", id=str(row.id), attempts=row.attempt_count, error=err)
                     await self._repo.mark_failed(row.id, err)
+                    RELAY_FAILED.inc()
                 else:
                     backoff = _backoff_seconds(row.attempt_count)
                     log.warning("relay.retry", id=str(row.id), attempts=row.attempt_count, backoff=backoff, error=err)
                     await self._repo.mark_retry(row.id, err, backoff)
+                    RELAY_RETRIED.inc()
 
         if published_ids:
             await self._repo.delete_by_ids(published_ids)
+            RELAY_PUBLISHED.inc(len(published_ids))
             log.info("relay.batch_published", count=len(published_ids))
 
     async def _sleep(self, seconds: float) -> None:

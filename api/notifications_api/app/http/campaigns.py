@@ -16,6 +16,7 @@ from notifications_api.app.http.idempotency import build_scope, extract_idempote
 from notifications_api.app.http.pagination import decode_cursor, encode_cursor
 from notifications_api.app.http.schemas import ApiModel
 from notifications_api.infra.config import GlobalConfig
+from notifications_api.infra.metrics import CAMPAIGNS_CANCELLED, CAMPAIGNS_CREATED
 from notifications_api.protocol.campaign import CursorPoint
 from notifications_api.usecase.campaigns import (
     CampaignUsecaseNotFoundError,
@@ -130,6 +131,7 @@ async def create_campaign(
     except CampaignUsecaseValidationError as exc:
         _handle_usecase_validation_error(exc)
 
+    CAMPAIGNS_CREATED.inc()
     return Response(content=result.payload, status_code=result.status_code)
 
 
@@ -162,6 +164,7 @@ async def cancel_campaign(
     except CampaignUsecaseNotFoundError as exc:
         _handle_usecase_not_found_error(exc)
 
+    CAMPAIGNS_CANCELLED.inc()
     return Response(content=result.payload, status_code=result.status_code)
 
 

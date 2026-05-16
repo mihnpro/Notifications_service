@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 	appdelivery "github.com/notifications/delivery/internal/application/delivery"
 	"github.com/notifications/delivery/internal/domain/provider"
 	"github.com/notifications/delivery/internal/infrastructure/config"
+	"github.com/notifications/delivery/internal/infrastructure/metrics"
 	"github.com/notifications/delivery/internal/infrastructure/postgres"
 	infraprovider "github.com/notifications/delivery/internal/infrastructure/provider"
 	"github.com/notifications/delivery/internal/infrastructure/rabbitmq"
@@ -69,6 +71,19 @@ func main() {
 		cfg.Concurrency,
 		svc,
 	)
+
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = ":9093"
+	}
+	metricsSrv := &http.Server{Addr: metricsAddr, Handler: metrics.Handler()}
+	go func() {
+		slog.Info("metrics server listening", "addr", metricsAddr)
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("metrics server error", "error", err)
+		}
+	}()
+	defer metricsSrv.Close()
 
 	slog.Info("delivery worker starting",
 		"worker_id", cfg.WorkerID,
