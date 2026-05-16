@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/notifications/delivery/internal/domain/task"
+	"github.com/notifications/delivery/internal/infrastructure/metrics"
 )
 
 const reconnectDelay = 5 * time.Second
@@ -116,23 +117,25 @@ func (w *Worker) runOnce(ctx context.Context) error {
 func (w *Worker) handle(ctx context.Context, d amqp.Delivery, sem *semaphore.Weighted) {
 	defer sem.Release(1)
 
+	queue := d.RoutingKey
 	err := w.handler.Process(ctx, d.Body)
 
 	switch {
 	case err == nil:
 		d.Ack(false) //nolint:errcheck
+		metrics.MessagesProcessed.WithLabelValues(queue, "ack").Inc()
 
 	// These are "safe to discard" domain outcomes — no data loss risk.
 	case errors.Is(err, task.ErrAlreadyLeased),
 		errors.Is(err, task.ErrNotAvailable),
 		errors.Is(err, task.ErrNotFound):
 		d.Ack(false) //nolint:errcheck
+		metrics.MessagesProcessed.WithLabelValues(queue, "skipped").Inc()
 
 	default:
-		// Infrastructure error — nack without requeue.
-		// Recovery jobs re-emit signals for stuck tasks.
 		slog.Error("delivery failed, nacking", "error", err)
 		d.Nack(false, false) //nolint:errcheck
+		metrics.MessagesProcessed.WithLabelValues(queue, "nack").Inc()
 	}
 }
 

@@ -1,0 +1,313 @@
+{
+  "uid": "notifications-rabbitmq",
+  "title": "Notifications — RabbitMQ",
+  "tags": ["notifications", "rabbitmq"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "vhost",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(rabbitmq_connections, vhost)",
+        "multi": false,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Cluster Overview",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+    {
+      "id": 2,
+      "title": "Connections",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rabbitmq_connections)",
+        "legendFormat": "connections"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 200 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Channels",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rabbitmq_channels)", "legendFormat": "channels" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 200 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Queues",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rabbitmq_queues)", "legendFormat": "queues" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } } }
+    },
+    {
+      "id": 5,
+      "title": "Consumers",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rabbitmq_consumers)", "legendFormat": "consumers" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } } }
+    },
+    {
+      "id": 6,
+      "title": "Memory Used",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rabbitmq_process_resident_memory_bytes)", "legendFormat": "RSS" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 512000000 },
+              { "color": "red", "value": 1500000000 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "File Descriptors Used %",
+      "type": "gauge",
+      "gridPos": { "x": 20, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "rabbitmq_process_open_fds / rabbitmq_process_max_fds * 100",
+        "legendFormat": "FD %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Message Rates",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 }
+    },
+    {
+      "id": 11,
+      "title": "Published / Delivered / Acked per s",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(rabbitmq_channel_messages_published_total[1m]))",
+          "legendFormat": "published/s"
+        },
+        {
+          "expr": "sum(rate(rabbitmq_channel_messages_delivered_total[1m]))",
+          "legendFormat": "delivered/s"
+        },
+        {
+          "expr": "sum(rate(rabbitmq_channel_messages_acked_total[1m]))",
+          "legendFormat": "acked/s"
+        },
+        {
+          "expr": "sum(rate(rabbitmq_channel_messages_requeued_total[1m]))",
+          "legendFormat": "requeued/s"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Unacked Messages",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rabbitmq_channel_messages_unacked) by (queue)",
+        "legendFormat": "{{queue}}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 1000 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Queue Depths — Notifications Queues",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 1 }
+    },
+    {
+      "id": 21,
+      "title": "Queue Depth (ready messages)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 13, "w": 24, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "rabbitmq_queue_messages_ready{vhost=~\"$vhost\"}",
+        "legendFormat": "{{queue}}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 10000 },
+              { "color": "red", "value": 100000 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Erlang / Node",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 1 }
+    },
+    {
+      "id": 31,
+      "title": "Erlang Processes",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 21, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rabbitmq_erlang_processes_used",
+          "legendFormat": "used"
+        },
+        {
+          "expr": "rabbitmq_erlang_processes_limit",
+          "legendFormat": "limit"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "GC Runs / s",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 21, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "rate(rabbitmq_erlang_gc_runs_total[1m])",
+        "legendFormat": "GC/s"
+      }]
+    },
+    {
+      "id": 33,
+      "title": "Disk Free",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 21, "w": 4, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "rabbitmq_disk_space_available_bytes", "legendFormat": "free" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 1073741824 },
+              { "color": "green", "value": 5368709120 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 34,
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 21, "w": 4, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "rabbitmq_erlang_uptime_seconds", "legendFormat": "uptime" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Logs",
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 1 }
+    },
+    {
+      "id": 41,
+      "title": "RabbitMQ Logs",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 27, "w": 24, "h": 7 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "expr": "{compose_service=\"rabbitmq\"} |= ``",
+        "legendFormat": ""
+      }],
+      "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true }
+    }
+  ]
+}

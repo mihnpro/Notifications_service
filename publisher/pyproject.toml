@@ -13,6 +13,7 @@ dependencies = [
     "asyncpg>=0.29,<1.0",
     "pydantic-settings>=2.3,<3.0",
     "structlog>=24.1,<25.0",
+    "prometheus-client>=0.20,<1.0",
 ]
 
 [project.optional-dependencies]

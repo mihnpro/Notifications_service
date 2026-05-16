@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/notifications/funout/internal/domain/campaign"
+	"github.com/notifications/funout/internal/infrastructure/metrics"
 )
 
 const (
@@ -126,15 +127,17 @@ func (w *Worker) handle(ctx context.Context, d amqp.Delivery, sem *semaphore.Wei
 	switch {
 	case err == nil:
 		d.Ack(false) //nolint:errcheck
+		metrics.MessagesProcessed.WithLabelValues("ack").Inc()
 
 	case errors.Is(err, campaign.ErrAlreadyLocked):
 		// Duplicate signal — safe to ack; another worker owns this run.
 		d.Ack(false) //nolint:errcheck
+		metrics.MessagesProcessed.WithLabelValues("skipped").Inc()
 
 	default:
 		slog.Error("fanout failed, nacking", "error", err)
-		// requeue=false: rely on outbox recovery to re-emit the signal.
 		d.Nack(false, false) //nolint:errcheck
+		metrics.MessagesProcessed.WithLabelValues("nack").Inc()
 	}
 }
 

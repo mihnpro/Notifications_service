@@ -30,3 +30,4 @@ class PublisherConfig(BaseSettings):
     worker_id: str = Field(default_factory=socket.gethostname)
     log_level: str = "INFO"
     shutdown_grace_sec: float = 15.0
+    metrics_addr: str = ":9091"

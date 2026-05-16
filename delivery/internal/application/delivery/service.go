@@ -10,6 +10,7 @@ import (
 
 	"github.com/notifications/delivery/internal/domain/provider"
 	"github.com/notifications/delivery/internal/domain/task"
+	"github.com/notifications/delivery/internal/infrastructure/metrics"
 )
 
 // Service orchestrates the full delivery flow for one message.
@@ -36,6 +37,8 @@ func (s *Service) Process(ctx context.Context, body []byte) error {
 
 	log := slog.With("task_id", msg.TaskID, "channel", msg.ChannelCode, "worker", s.workerID)
 
+	taskStart := time.Now()
+
 	// ── 1. Acquire lease ────────────────────────────────────────────────────
 	t, attempt, err := s.tasks.AcquireLease(ctx, msg.TaskID, s.workerID)
 	switch {
@@ -60,6 +63,7 @@ func (s *Service) Process(ctx context.Context, body []byte) error {
 	}()
 
 	// ── 3. Provider call ──────────────────────────────────────────────────────
+	provStart := time.Now()
 	provCtx, provCancel := context.WithTimeout(ctx, providerTimeout)
 	result, provErr := s.adapter.Send(provCtx, provider.Payload{
 		TaskID:         t.ID,
@@ -69,6 +73,20 @@ func (s *Service) Process(ctx context.Context, body []byte) error {
 		IdempotencyKey: t.IdempotencyKey,
 	})
 	provCancel()
+	metrics.ProviderCallDuration.WithLabelValues(t.ChannelCode).Observe(time.Since(provStart).Seconds())
+
+	provOutcome := "success"
+	if provErr != nil {
+		var pErr *provider.Error
+		if errors.As(provErr, &pErr) {
+			provOutcome = string(pErr.Type)
+		} else if errors.Is(provErr, context.DeadlineExceeded) {
+			provOutcome = "timeout"
+		} else {
+			provOutcome = "transient"
+		}
+	}
+	metrics.ProviderCalls.WithLabelValues(t.ChannelCode, provOutcome).Inc()
 
 	// Stop heartbeat and wait for the goroutine to exit before finalizing.
 	hbCancel()
@@ -92,15 +110,15 @@ func (s *Service) Process(ctx context.Context, body []byte) error {
 
 	// ── 5. Finalize ───────────────────────────────────────────────────────────
 	if err := s.tasks.Finalize(ctx, params); errors.Is(err, task.ErrLeaseExpired) {
-		// Recovery reclaimed the task while we were calling the provider.
-		// Ack the message — recovery will reschedule it.
 		log.Warn("finalization skipped: lease was reclaimed by recovery")
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("finalize: %w", err)
 	}
 
-	log.Info("delivery finalized", "new_status", params.NewTaskStatus)
+	metrics.TasksFinalized.WithLabelValues(t.ChannelCode, string(params.NewTaskStatus)).Inc()
+	metrics.TaskDuration.WithLabelValues(t.ChannelCode).Observe(time.Since(taskStart).Seconds())
+	log.Info("delivery finalized", "new_status", params.NewTaskStatus, "duration_ms", int(time.Since(taskStart).Milliseconds()))
 	return nil
 }
 
