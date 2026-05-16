@@ -51,174 +51,174 @@
 
   "queues": [
     {
-      "name": "notification.eu.default.high",
+      "name": "notification.default.default.high",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.dlx",
-        "x-dead-letter-routing-key": "notification.eu.default.high.dead",
+        "x-dead-letter-routing-key": "notification.default.default.high.dead",
         "x-message-ttl": 86400000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.default.normal",
+      "name": "notification.default.default.normal",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.dlx",
-        "x-dead-letter-routing-key": "notification.eu.default.normal.dead",
+        "x-dead-letter-routing-key": "notification.default.default.normal.dead",
         "x-message-ttl": 86400000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.messenger.high",
+      "name": "notification.default.messenger.high",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.dlx",
-        "x-dead-letter-routing-key": "notification.eu.messenger.high.dead",
+        "x-dead-letter-routing-key": "notification.default.messenger.high.dead",
         "x-message-ttl": 86400000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.messenger.normal",
+      "name": "notification.default.messenger.normal",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.dlx",
-        "x-dead-letter-routing-key": "notification.eu.messenger.normal.dead",
+        "x-dead-letter-routing-key": "notification.default.messenger.normal.dead",
         "x-message-ttl": 86400000,
         "x-queue-type": "classic"
       }
     },
 
     {
-      "name": "notification.eu.default.retry.30s",
+      "name": "notification.default.default.retry.30s",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.default.normal",
+        "x-dead-letter-routing-key": "notification.default.default.normal",
         "x-message-ttl": 30000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.default.retry.1m",
+      "name": "notification.default.default.retry.1m",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.default.normal",
+        "x-dead-letter-routing-key": "notification.default.default.normal",
         "x-message-ttl": 60000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.default.retry.5m",
+      "name": "notification.default.default.retry.5m",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.default.normal",
+        "x-dead-letter-routing-key": "notification.default.default.normal",
         "x-message-ttl": 300000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.default.retry.15m",
+      "name": "notification.default.default.retry.15m",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.default.normal",
+        "x-dead-letter-routing-key": "notification.default.default.normal",
         "x-message-ttl": 900000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.messenger.retry.30s",
+      "name": "notification.default.messenger.retry.30s",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.messenger.normal",
+        "x-dead-letter-routing-key": "notification.default.messenger.normal",
         "x-message-ttl": 30000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.messenger.retry.1m",
+      "name": "notification.default.messenger.retry.1m",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.messenger.normal",
+        "x-dead-letter-routing-key": "notification.default.messenger.normal",
         "x-message-ttl": 60000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.messenger.retry.5m",
+      "name": "notification.default.messenger.retry.5m",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.messenger.normal",
+        "x-dead-letter-routing-key": "notification.default.messenger.normal",
         "x-message-ttl": 300000,
         "x-queue-type": "classic"
       }
     },
     {
-      "name": "notification.eu.messenger.retry.15m",
+      "name": "notification.default.messenger.retry.15m",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {
         "x-dead-letter-exchange": "notification.direct",
-        "x-dead-letter-routing-key": "notification.eu.messenger.normal",
+        "x-dead-letter-routing-key": "notification.default.messenger.normal",
         "x-message-ttl": 900000,
         "x-queue-type": "classic"
       }
     },
 
     {
-      "name": "notification.eu.default.high.dead",
+      "name": "notification.default.default.high.dead",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {}
     },
     {
-      "name": "notification.eu.default.normal.dead",
+      "name": "notification.default.default.normal.dead",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {}
     },
     {
-      "name": "notification.eu.messenger.high.dead",
+      "name": "notification.default.messenger.high.dead",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
       "arguments": {}
     },
     {
-      "name": "notification.eu.messenger.normal.dead",
+      "name": "notification.default.messenger.normal.dead",
       "vhost": "/notifications",
       "durable": true,
       "auto_delete": false,
@@ -241,131 +241,131 @@
     {
       "source": "notification.direct",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.high",
+      "destination": "notification.default.default.high",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.high",
+      "routing_key": "notification.default.default.high",
       "arguments": {}
     },
     {
       "source": "notification.direct",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.normal",
+      "destination": "notification.default.default.normal",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.normal",
+      "routing_key": "notification.default.default.normal",
       "arguments": {}
     },
     {
       "source": "notification.direct",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.high",
+      "destination": "notification.default.messenger.high",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.high",
+      "routing_key": "notification.default.messenger.high",
       "arguments": {}
     },
     {
       "source": "notification.direct",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.normal",
+      "destination": "notification.default.messenger.normal",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.normal",
+      "routing_key": "notification.default.messenger.normal",
       "arguments": {}
     },
 
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.retry.30s",
+      "destination": "notification.default.default.retry.30s",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.retry.30s",
+      "routing_key": "notification.default.default.retry.30s",
       "arguments": {}
     },
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.retry.1m",
+      "destination": "notification.default.default.retry.1m",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.retry.1m",
+      "routing_key": "notification.default.default.retry.1m",
       "arguments": {}
     },
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.retry.5m",
+      "destination": "notification.default.default.retry.5m",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.retry.5m",
+      "routing_key": "notification.default.default.retry.5m",
       "arguments": {}
     },
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.retry.15m",
+      "destination": "notification.default.default.retry.15m",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.retry.15m",
+      "routing_key": "notification.default.default.retry.15m",
       "arguments": {}
     },
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.retry.30s",
+      "destination": "notification.default.messenger.retry.30s",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.retry.30s",
+      "routing_key": "notification.default.messenger.retry.30s",
       "arguments": {}
     },
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.retry.1m",
+      "destination": "notification.default.messenger.retry.1m",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.retry.1m",
+      "routing_key": "notification.default.messenger.retry.1m",
       "arguments": {}
     },
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.retry.5m",
+      "destination": "notification.default.messenger.retry.5m",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.retry.5m",
+      "routing_key": "notification.default.messenger.retry.5m",
       "arguments": {}
     },
     {
       "source": "notification.retry",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.retry.15m",
+      "destination": "notification.default.messenger.retry.15m",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.retry.15m",
+      "routing_key": "notification.default.messenger.retry.15m",
       "arguments": {}
     },
 
     {
       "source": "notification.dlx",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.high.dead",
+      "destination": "notification.default.default.high.dead",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.high.dead",
+      "routing_key": "notification.default.default.high.dead",
       "arguments": {}
     },
     {
       "source": "notification.dlx",
       "vhost": "/notifications",
-      "destination": "notification.eu.default.normal.dead",
+      "destination": "notification.default.default.normal.dead",
       "destination_type": "queue",
-      "routing_key": "notification.eu.default.normal.dead",
+      "routing_key": "notification.default.default.normal.dead",
       "arguments": {}
     },
     {
       "source": "notification.dlx",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.high.dead",
+      "destination": "notification.default.messenger.high.dead",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.high.dead",
+      "routing_key": "notification.default.messenger.high.dead",
       "arguments": {}
     },
     {
       "source": "notification.dlx",
       "vhost": "/notifications",
-      "destination": "notification.eu.messenger.normal.dead",
+      "destination": "notification.default.messenger.normal.dead",
       "destination_type": "queue",
-      "routing_key": "notification.eu.messenger.normal.dead",
+      "routing_key": "notification.default.messenger.normal.dead",
       "arguments": {}
     },
 
