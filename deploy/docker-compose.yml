@@ -1,5 +1,4 @@
 services:
-
   # ── Infrastructure ────────────────────────────────────────────────────────────
 
   postgres:
@@ -16,7 +15,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notifications} -d ${POSTGRES_DB:-notifications}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-notifications} -d ${POSTGRES_DB:-notifications}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -67,8 +70,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      - "${API_PORT:-8000}:8000"
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python3 -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/healthz'')"',
+        ]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -81,7 +90,7 @@ services:
       context: ../frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${FRONTEND_VITE_API_BASE_URL:-https://api.example.com}
+        VITE_API_BASE_URL: ${FRONTEND_VITE_API_BASE_URL:-http://localhost:8000}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-80}:80"
@@ -89,7 +98,11 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/healthz >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost/healthz >/dev/null 2>&1 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -195,6 +208,33 @@ services:
     networks:
       - notifications
 
+  # ── Recovery service ─────────────────────────────────────────────────────────
+
+  # recovery:
+  #   build:
+  #     context: ../recover
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   command: ["serve"]
+  #   environment:
+  #     RECOVER_CONFIG: /app/config/default.toml
+  #     APP__INSTANCE_ID: "${RECOVERY_INSTANCE_ID:-recover-default}"
+  #     APP__SERVER__BIND: "0.0.0.0:8080"
+  #     APP__DB__URL: "postgres://${POSTGRES_USER:-notifications}:${POSTGRES_PASSWORD:-notifications}@postgres:5432/${POSTGRES_DB:-notifications}"
+  #     APP__RMQ__URL: "amqp://notifications:notifications@rabbitmq:5672/%2Fnotifications"
+  #     APP__RMQ__ENABLED: "false"
+  #     APP__TELEMETRY__LOG_LEVEL: "info,sqlx=warn,lapin=warn"
+  #     APP__TELEMETRY__LOG_FORMAT: "json"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   ports:
+  #     - "${RECOVERY_PORT:-8081}:8080"
+  #   networks:
+  #     - notifications
+
   # ── Provider mock ─────────────────────────────────────────────────────────────
 
   provider_mock:
@@ -208,7 +248,11 @@ services:
       MIN_DELAY: "${PROVIDER_MIN_DELAY:-0.05}"
       MAX_DELAY: "${PROVIDER_MAX_DELAY:-0.5}"
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python3 -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/health'')"',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
