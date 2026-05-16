@@ -135,6 +135,41 @@ curl -X POST http://localhost:8000/users/bulk \
   }'
 ```
 
+Seed 50k synthetic users through API (script bootstraps channels + manager, then gets JWT automatically):
+
+```bash
+cd Notifications_service/api
+uv run python scripts/seed_users.py --total 50000
+```
+
+Seed with selected channels only:
+
+```bash
+cd Notifications_service/api
+uv run python scripts/seed_users.py --total 50000 --channels email,sms
+```
+
+Faster seeding with parallel requests:
+
+```bash
+cd Notifications_service/api
+uv run python scripts/seed_users.py --total 50000 --workers 6
+```
+
+Use custom manager credentials for bootstrap/login:
+
+```bash
+cd Notifications_service/api
+uv run python scripts/seed_users.py --total 50000 --manager-login demo --manager-password 'demo-pass-123'
+```
+
+Use existing JWT without bootstrap/login:
+
+```bash
+cd Notifications_service/api
+AUTH_TOKEN='<jwt-from-/auth/login>' uv run python scripts/seed_users.py --total 50000 --no-bootstrap-manager
+```
+
 ## Known limitations
 
 - Single-region runtime only: `regionId=default`.

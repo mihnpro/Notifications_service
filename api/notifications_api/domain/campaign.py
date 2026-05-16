@@ -98,7 +98,7 @@ class RecipientSelector:
             external_ids = tuple(raw_external_ids)
 
         raw_filter = payload.get("filter")
-        selector_filter:  = raw_filter if isinstance(raw_filter, Mapping) else None
+        selector_filter = raw_filter if isinstance(raw_filter, Mapping) else None
 
         selector = cls(
             type=selector_type,
