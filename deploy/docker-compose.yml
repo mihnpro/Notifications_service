@@ -50,27 +50,14 @@ services:
     networks:
       - notifications
 
-
-  provider_mock:
-    build:
-      context: ../provider_mock
-    container_name: notifications_provider_mock
-    restart: unless-stopped
-    environment:
-      SUCCESS_RATE:   "${PROVIDER_SUCCESS_RATE:-0.7}"
-      TRANSIENT_RATE: "${PROVIDER_TRANSIENT_RATE:-0.7}"
-      MIN_LATENCY_MS: "${PROVIDER_MIN_LATENCY_MS:-50}"
-      MAX_LATENCY_MS: "${PROVIDER_MAX_LATENCY_MS:-500}"
+  nginx:
+    image: nginx:1.28-alpine
     ports:
-      - "${PROVIDER_MOCK_PORT:-8090}:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    networks:
-      - notifications
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
 
 volumes:
   postgres_data:
