@@ -927,9 +927,8 @@ _INSERT_DLQ_PUBLISH_SQL = text(
                            reason_code, error_message, status, created_at)
     VALUES (gen_random_uuid(), :task_id, :campaign_id, :channel_code,
             :reason_code, :error_message, 'open', NOW())
-    ON CONFLICT (task_id) DO UPDATE
-        SET status = 'open',
-            reason_code = EXCLUDED.reason_code,
+    ON CONFLICT (task_id) WHERE status = 'open' DO UPDATE
+        SET reason_code = EXCLUDED.reason_code,
             error_message = EXCLUDED.error_message
     """
 )
