@@ -27,16 +27,14 @@ services:
     container_name: notifications_rabbitmq
     restart: unless-stopped
     environment:
-      # User/vhost/topology are declared in definitions.json
-      # Default guest user is kept disabled by not setting RABBITMQ_DEFAULT_USER
-      RABBITMQ_DEFAULT_USER: "guest-disabled"
-      RABBITMQ_DEFAULT_PASS: "guest-disabled"
+      RABBITMQ_DEFAULT_USER: "notifications"
+      RABBITMQ_DEFAULT_PASS: "notifications"
+      RABBITMQ_DEFAULT_VHOST: "/notifications"
     ports:
       - "${RABBITMQ_AMQP_PORT:-5672}:5672"
       - "${RABBITMQ_MGMT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
@@ -44,6 +42,29 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+    networks:
+      - notifications
+
+  publisher:
+    build:
+      context: ../publisher
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PG_DSN: postgresql+asyncpg://${POSTGRES_USER:-notifications}:${POSTGRES_PASSWORD:-notifications}@postgres:5432/${POSTGRES_DB:-notifications}
+      RABBITMQ_URL: amqp://notifications:notifications@rabbitmq:5672/%2Fnotifications
+      BATCH_SIZE: "100"
+      POLL_INTERVAL_SEC: "1.0"
+      LOCK_TTL_SEC: "60"
+      MAX_ATTEMPTS: "10"
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      replicas: 2
     networks:
       - notifications
 
