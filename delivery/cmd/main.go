@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdelivery "github.com/notifications/delivery/internal/application/delivery"
+	"github.com/notifications/delivery/internal/domain/provider"
 	"github.com/notifications/delivery/internal/infrastructure/config"
 	"github.com/notifications/delivery/internal/infrastructure/postgres"
 	infraprovider "github.com/notifications/delivery/internal/infrastructure/provider"
@@ -49,7 +50,16 @@ func main() {
 
 	// Wire up all layers.
 	taskRepo := postgres.NewTaskRepository(pool, cfg.WorkerID)
-	adapter := infraprovider.NewStubAdapter()
+
+	var adapter provider.Adapter
+	if cfg.ProviderURL != "" {
+		adapter = infraprovider.NewHTTPAdapter(cfg.ProviderURL)
+		slog.Info("using HTTP provider adapter", "url", cfg.ProviderURL)
+	} else {
+		adapter = infraprovider.NewStubAdapter()
+		slog.Info("using stub provider adapter")
+	}
+
 	svc := appdelivery.NewService(taskRepo, adapter, cfg.WorkerID)
 
 	worker := rabbitmq.NewWorker(

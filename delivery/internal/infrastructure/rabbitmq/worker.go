@@ -25,7 +25,7 @@ type MessageHandler interface {
 type Worker struct {
 	amqpURL     string
 	vhost       string
-	queues      []string // e.g. ["notification.eu.default.normal", ...]
+	queues      []string // e.g. ["notification.default.email.normal", ...]
 	concurrency int64
 	handler     MessageHandler
 }

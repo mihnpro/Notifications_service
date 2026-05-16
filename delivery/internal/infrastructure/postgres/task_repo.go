@@ -296,7 +296,7 @@ func insertDLQItem(ctx context.Context, tx pgx.Tx, p task.FinalizeParams) error 
 	const q = `
 		INSERT INTO dlq_items (task_id, campaign_id, channel_code, reason_code, error_code, error_message, status, created_at)
 		VALUES ($1, $2, $3, 'max_attempts_exceeded', $4, $5, 'open', NOW())
-		ON CONFLICT (task_id) DO NOTHING`
+		ON CONFLICT (task_id) WHERE status = 'open' DO NOTHING`
 
 	// channel_code comes from attempt; re-use error fields.
 	_, err := tx.Exec(ctx, q, p.TaskID, p.CampaignID, "", p.ErrorCode, p.ErrorMessage)
@@ -317,7 +317,7 @@ func insertRetryOutbox(ctx context.Context, tx pgx.Tx, p task.FinalizeParams) er
 		VALUES
 		    ('default', 'TaskRetryScheduled', $1, 'notification.retry', $2,
 		     'pending', $3, NOW(), $4)
-		ON CONFLICT (dedupe_key) DO NOTHING`
+		ON CONFLICT (region_id, dedupe_key) DO NOTHING`
 
 	_, err := tx.Exec(ctx, q,
 		[]byte(payload),
