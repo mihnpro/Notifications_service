@@ -1,0 +1,66 @@
+# Recovery service defaults. Override via env: APP__SECTION__FIELD=value
+# Example: APP__DB__URL=postgres://...
+
+instance_id = "recover-local"
+
+[server]
+bind = "0.0.0.0:8080"
+
+[db]
+url = "postgres://notif:notif@localhost:5432/notif"
+max_connections = 10
+acquire_timeout_ms = 5000
+statement_cache_capacity = 100
+
+[rmq]
+url = "amqp://guest:guest@localhost:5672/%2f"
+enabled = false  # Recovery эмитит retry через outbox; прямой publish не нужен по умолчанию
+
+[regions]
+# Список region_id, которые обслуживает этот инстанс. ["*"] — все регионы.
+ids = ["default"]
+
+[jobs.outbox_recovery]
+enabled = true
+batch_size = 200
+idle_interval_ms = 5000
+busy_interval_ms = 50
+mid_interval_ms = 500
+concurrency = 1   # одна batched-UPDATE, parallelism не нужен
+
+[jobs.lease_recovery]
+enabled = true
+batch_size = 200
+idle_interval_ms = 3000
+busy_interval_ms = 50
+mid_interval_ms = 500
+concurrency = 16  # горячая зона при инцидентах
+
+[jobs.retry_scanner]
+enabled = true
+batch_size = 500
+idle_interval_ms = 5000
+busy_interval_ms = 100
+mid_interval_ms = 500
+concurrency = 8
+
+[jobs.campaign_finalizer]
+enabled = true
+batch_size = 50
+idle_interval_ms = 10000
+busy_interval_ms = 200
+mid_interval_ms = 1000
+concurrency = 4
+
+[retry]
+# Бакеты в секундах по attempt_count (1-based). Падает на последний при превышении.
+buckets_seconds = [30, 60, 300, 900]
+# Окно ожидания, прежде чем retry_scanner перепушит «потерянный» retry-сигнал
+# (защита от гонки с RMQ TTL-доставкой).
+repush_grace_seconds = 30
+# Жёсткий потолок max_attempts для ручного retry/replay (страховка от abuse).
+force_retry_max_attempts_ceiling = 20
+
+[telemetry]
+log_format = "json"   # "json" | "pretty"
+log_level = "info,sqlx=warn,lapin=warn"
